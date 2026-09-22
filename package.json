@@ -1,0 +1,26 @@
+{
+  "name": "arclio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Arclio — AI orchestration for the real world",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev": "concurrently --names \"mcp,api,web\" --prefix-colors \"yellow,cyan,magenta\" --kill-others-on-fail \"npm run dev:server\" \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:server": "npm run dev --workspace=packages/mcp-server",
+    "dev:agent": "npm run dev --workspace=packages/agent",
+    "dev:api": "npm run dev --workspace=packages/api",
+    "dev:web": "npm run dev --workspace=packages/web",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspace=packages/agent"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "typescript": "^5.5.3"
+  }
+}

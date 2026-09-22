@@ -1,0 +1,22 @@
+{
+  "name": "@arclio/agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Arclio reasoning agent — planner, executor, verifier, CLI",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "dev": "tsc --project tsconfig.json && node --watch dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "node --test dist/tests/*.test.js",
+    "test": "npm run build && npm run test:unit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1136.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10"
+  }
+}

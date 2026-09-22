@@ -1,0 +1,22 @@
+{
+  "name": "@arclio/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Arclio MCP server — Streamable HTTP transport",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "dev": "tsc --project tsconfig.json && node --watch dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "express": "^4.19.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.10"
+  }
+}

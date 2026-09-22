@@ -1,0 +1,23 @@
+{
+  "name": "@arclio/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Arclio API server — HTTP bridge between the web UI and the agent",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "dev": "tsc --project tsconfig.json && node --watch dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@arclio/agent": "*",
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.10"
+  }
+}
