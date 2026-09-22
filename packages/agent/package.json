@@ -5,6 +5,9 @@
   "description": "Arclio reasoning agent — planner, executor, verifier, CLI",
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/agent.js"
+  },
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "dev": "tsc --project tsconfig.json && node --watch dist/index.js",

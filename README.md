@@ -1,4 +1,4 @@
-﻿# Arclio
+# Arclio
 
 **AI orchestration for the real world.**
 
@@ -108,6 +108,7 @@ The following are implemented and tested in this repository:
 | Activity timeline and agent response panel | ✓ |
 | Cross-process notification store | ✓ |
 | Alexa+ MCP integration | Integration target |
+| Alexa+ Simulator (web) | ✓ |
 
 ---
 
@@ -340,6 +341,20 @@ The agent package includes three test suites, all run with the Node.js built-in 
 - [ ] Multi-step approval workflows
 - [ ] Real business system connectors (ERP, Google Calendar, physical access)
 - [ ] AWS deployment (Lambda / ECS)
+
+---
+
+## Alexa+ Simulator
+
+Arclio includes a dedicated **Alexa+ Simulation** experience for the hackathon — a polished conversational interface that demonstrates how Arclio works when accessed through Alexa+.
+
+```
+http://localhost:5173  →  click "Alexa+ Simulator" in the sidebar
+```
+
+The simulator connects to the existing Arclio agent pipeline (no new backend required). It supports voice input via the browser Web Speech API and text-to-speech responses, with a reliable click-to-run demo mode that does not depend on voice recognition.
+
+→ See [docs/alexa-simulation.md](docs/alexa-simulation.md) for full architecture, user flows, and integration details.
 
 ---
 

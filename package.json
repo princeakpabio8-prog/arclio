@@ -2,6 +2,7 @@
   "name": "arclio",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Arclio — AI orchestration for the real world",
   "workspaces": [
     "packages/*"
@@ -14,12 +15,13 @@
     "dev:api": "npm run dev --workspace=packages/api",
     "dev:web": "npm run dev --workspace=packages/web",
     "typecheck": "npm run typecheck --workspaces",
-    "test": "npm run test --workspace=packages/agent"
+    "test": "npm run test --workspace=packages/agent && npm run test --workspace=packages/api"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "devDependencies": {
+    "@vercel/node": "^13.0.2",
     "concurrently": "^10.0.5",
     "typescript": "^5.5.3"
   }

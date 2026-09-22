@@ -1,8 +1,12 @@
-type Page = "home" | "calendar" | "procurement" | "deliveries" | "security" | "reports" | "settings";
+type Page = "home" | "calendar" | "procurement" | "deliveries" | "security" | "reports" | "settings" | "alexa";
 
 interface Props {
   active: Page;
   onNavigate: (page: Page) => void;
+  /** Whether the sidebar drawer is open (mobile only) */
+  mobileOpen?: boolean;
+  /** Called when the user closes the sidebar on mobile */
+  onMobileClose?: () => void;
 }
 
 const NAV: Array<{ id: Page; label: string; icon: React.ReactNode; section?: string }> = [
@@ -83,9 +87,22 @@ const NAV: Array<{ id: Page; label: string; icon: React.ReactNode; section?: str
       </svg>
     ),
   },
+  {
+    id: "alexa" as Page,
+    label: "Alexa+ Simulator",
+    section: "Hackathon",
+    icon: (
+      <svg viewBox="0 0 24 24">
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="23"/>
+        <line x1="8" y1="23" x2="16" y2="23"/>
+      </svg>
+    ),
+  },
 ];
 
-export function Sidebar({ active, onNavigate }: Props) {
+export function Sidebar({ active, onNavigate, mobileOpen = false, onMobileClose }: Props) {
   // Group nav items by section
   const sections: Array<{ label: string | undefined; items: typeof NAV }> = [];
   let current: typeof NAV = [];
@@ -102,8 +119,14 @@ export function Sidebar({ active, onNavigate }: Props) {
   }
   if (current.length > 0) sections.push({ label: currentLabel, items: current });
 
+  function handleNavigate(id: Page) {
+    onNavigate(id);
+    // Close mobile drawer when a page is selected
+    onMobileClose?.();
+  }
+
   return (
-    <nav className="sidebar">
+    <nav className={`sidebar${mobileOpen ? " open" : ""}`}>
       {/* Brand */}
       <div className="sidebar-brand">
         <div className="sidebar-brand-inner">
@@ -130,7 +153,7 @@ export function Sidebar({ active, onNavigate }: Props) {
               <button
                 key={item.id}
                 className={`sidebar-nav-item${active === item.id ? " active" : ""}`}
-                onClick={() => onNavigate(item.id)}
+                onClick={() => handleNavigate(item.id)}
               >
                 <span className="sidebar-nav-icon">{item.icon}</span>
                 {item.label}

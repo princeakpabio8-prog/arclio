@@ -8,12 +8,16 @@
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "dev": "tsc --project tsconfig.json && node --watch dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "node --test dist/tests/*.test.js",
+    "test": "npm run build && npm run test:unit"
   },
   "dependencies": {
     "@arclio/agent": "*",
     "cors": "^2.8.5",
-    "express": "^4.19.2"
+    "dotenv": "^18.0.3",
+    "express": "^4.19.2",
+    "serverless-http": "^4.0.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

@@ -5,6 +5,11 @@
   "description": "Arclio MCP server — Streamable HTTP transport",
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./data/mock-data": "./dist/data/mock-data.js",
+    "./data/notification-store": "./dist/data/notification-store.js"
+  },
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "dev": "tsc --project tsconfig.json && node --watch dist/index.js",
