@@ -477,12 +477,18 @@ export function AlexaSimulator() {
   const bottomRef      = useRef<HTMLDivElement>(null);
   const inputRef       = useRef<HTMLInputElement>(null);
 
-  // Probe server for ElevenLabs availability on mount
+  // Probe server for ElevenLabs availability on mount.
+  // When ElevenLabs is configured server-side, automatically select it as the
+  // active provider so it is the default — not browser TTS.
+  // Browser TTS remains the fallback for when ElevenLabs is unavailable or fails.
   useEffect(() => {
     fetch("/api/voice/config")
       .then((r) => r.ok ? r.json() : null)
       .then((data: { elevenlabsAvailable?: boolean } | null) => {
-        if (data?.elevenlabsAvailable) setElevenlabsAvailable(true);
+        if (data?.elevenlabsAvailable) {
+          setElevenlabsAvailable(true);
+          setVoiceProviderType("elevenlabs"); // ElevenLabs is default when configured
+        }
       })
       .catch(() => { /* server offline — browser voice is already the default */ });
   }, []);
