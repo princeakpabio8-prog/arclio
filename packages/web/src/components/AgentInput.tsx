@@ -109,10 +109,12 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
     const trimmed = q.trim();
     if (!trimmed || loading || micState === "processing") return;
 
-    // Stop any ongoing speech
-    voiceRef.current.stopSpeaking();
-
-    // iOS audio unlock — must be synchronous before first await
+    // Prime the speech engine synchronously inside the gesture.
+    // On iOS Safari, speechSynthesis.speak() MUST be called while the JS
+    // call stack is still inside a user-gesture handler. primeForPlayback()
+    // speaks a silent unlock utterance right now; speakText() will cancel it
+    // and speak the real text. This MUST come first — any cancel() before it
+    // would kill the unlock utterance.
     voiceRef.current.primeForPlayback?.();
 
     setLoading(true);

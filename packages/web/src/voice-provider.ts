@@ -41,99 +41,175 @@ export interface VoiceProvider {
 export class BrowserVoiceProvider implements VoiceProvider {
   readonly type = "browser" as const;
 
-  /** True when window.speechSynthesis exists. */
   static isAvailable(): boolean {
     return typeof window !== "undefined" && "speechSynthesis" in window;
   }
 
   private safetyTimer: ReturnType<typeof setTimeout> | null = null;
-  // Whether cancel() was called during this gesture — used for the post-cancel tick.
-  private pendingSpeak: (() => void) | null = null;
+  // Text queued by speakText() while we wait for the unlock utterance to
+  // start (or if primeForPlayback was not called, immediately).
+  private queuedText: string | null = null;
+  private queuedOnEnd: (() => void) | null = null;
+  // Generation counter — incremented on every stopSpeaking() so stale
+  // async callbacks know not to proceed.
+  private gen = 0;
+  // True once the engine has been unlocked by a synchronous gesture speak().
+  private unlocked = false;
 
   /**
-   * primeForPlayback — call synchronously inside the user gesture, BEFORE any
-   * await.  This "touches" the SpeechSynthesis engine while still within the
-   * gesture call stack, which satisfies mobile browsers (iOS Safari, Android
-   * Chrome) that require a gesture to initiate audio.
+   * primeForPlayback — MUST be called synchronously inside the user-gesture
+   * handler (button click / chip click / Enter key), BEFORE any await.
    *
-   * It also eagerly triggers voice-list loading: on iOS the voice list is
-   * loaded lazily and calling getVoices() here starts that process so voices
-   * are more likely to be ready when speakText() is called later.
+   * iOS Safari and many Android browsers require that speechSynthesis.speak()
+   * is called while the call stack is still inside a user-gesture event
+   * handler. Calling speak() after an await, even one microtask tick later,
+   * is treated as a non-gesture call and is silently blocked.
+   *
+   * Strategy: speak a single silent space character (" ") immediately inside
+   * the gesture. This is instantly cancelled by speakText(), but the act of
+   * calling speak() here unlocks the synthesis engine for the session.
+   * The real utterance queued in speakText() then plays without restriction.
    */
   primeForPlayback(): void {
     if (!BrowserVoiceProvider.isAvailable()) return;
-    // Cancel any in-progress utterance synchronously inside the gesture.
+
+    // Cancel anything already in progress.
     window.speechSynthesis.cancel();
-    // Trigger voice-list loading (iOS lazy-loads voices on first getVoices call).
+
+    // Eagerly load the voice list (iOS loads it lazily on first getVoices()).
     window.speechSynthesis.getVoices();
+
+    // Speak a silent utterance synchronously inside the gesture call stack.
+    // This is the unlock step. The utterance contains a single space so it
+    // completes near-instantly; speakText() will cancel it and queue the
+    // real text. The onstart callback is where we know the engine is live.
+    const unlock = new SpeechSynthesisUtterance(" ");
+    unlock.volume = 0; // silent
+    unlock.rate   = 10; // finish as fast as possible
+
+    unlock.onstart = () => {
+      // Engine is live. If speakText() already queued text, speak it now.
+      this.unlocked = true;
+      this.flushQueue();
+    };
+    unlock.onend = () => {
+      this.unlocked = true;
+      this.flushQueue();
+    };
+    unlock.onerror = () => {
+      // Even on error the engine accepted the call — treat as unlocked.
+      this.unlocked = true;
+      this.flushQueue();
+    };
+
+    this.unlocked = false;
+    window.speechSynthesis.speak(unlock);
   }
 
   speakText(text: string, onEnd: () => void): void {
     if (!BrowserVoiceProvider.isAvailable()) { onEnd(); return; }
 
-    // Cancel anything already playing. On Android Chrome a race exists where
-    // calling speak() immediately after cancel() drops the utterance silently.
-    // We always defer speak() by one microtask tick to avoid this.
-    window.speechSynthesis.cancel();
+    this.clearSafetyTimer();
+    const myGen = ++this.gen;
 
-    let called = false;
+    // Wrap onEnd so it's only ever called once and guards the generation.
     const done = () => {
-      if (called) return;
-      called = true;
-      if (this.safetyTimer) { clearTimeout(this.safetyTimer); this.safetyTimer = null; }
-      this.pendingSpeak = null;
+      if (this.gen !== myGen) return;
+      this.clearSafetyTimer();
+      this.queuedText  = null;
+      this.queuedOnEnd = null;
       onEnd();
     };
 
-    const speak = () => {
-      // If a newer call came in between the tick and now, bail out.
-      if (this.pendingSpeak !== speak) return;
-      this.pendingSpeak = null;
+    // If the engine is already unlocked (primeForPlayback's silent utterance
+    // has started), cancel it and speak immediately.
+    if (this.unlocked) {
+      window.speechSynthesis.cancel();
+      this.doSpeak(text, done, myGen);
+      return;
+    }
 
-      // On iOS Safari, voices may not be loaded yet. If the voice list is
-      // empty, wait for voiceschanged and then speak; otherwise speak now.
-      const doSpeak = () => {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.onend   = done;
-        utterance.onerror = done;
+    // Engine not yet unlocked — queue the text. primeForPlayback's onstart/
+    // onend callbacks will call flushQueue() once the engine is live.
+    // Also set a fallback: if primeForPlayback() was never called (e.g. the
+    // user submitted via Enter key on a non-iOS browser that doesn't enforce
+    // the gesture requirement), just speak directly after one tick.
+    this.queuedText  = text;
+    this.queuedOnEnd = done;
 
-        // Safety net: iOS/Android often never fire onend for long utterances.
-        // Use a realistic estimate (~130 wpm) with a tight cap of 30 s so the
-        // UI doesn't stay locked in "speaking" state for a full minute.
-        const words = text.trim().split(/\s+/).length;
-        const estimatedMs = Math.min(Math.max(Math.ceil((words / 130) * 60_000), 2_000), 30_000);
-        this.safetyTimer = setTimeout(done, estimatedMs);
-
-        window.speechSynthesis.speak(utterance);
-      };
-
-      const voices = window.speechSynthesis.getVoices();
-      if (voices.length > 0) {
-        doSpeak();
-      } else {
-        // Voices not loaded yet — wait for the event (fires once on iOS).
-        const handler = () => {
-          window.speechSynthesis.removeEventListener("voiceschanged", handler);
-          doSpeak();
-        };
-        window.speechSynthesis.addEventListener("voiceschanged", handler);
-        // Fallback: if voiceschanged never fires (some browsers), speak anyway
-        // after a short delay so we don't hang forever.
-        setTimeout(() => {
-          window.speechSynthesis.removeEventListener("voiceschanged", handler);
-          if (!called) doSpeak();
-        }, 500);
+    setTimeout(() => {
+      if (this.gen !== myGen) return; // superseded
+      if (this.queuedText === text) {
+        // Still waiting — flush regardless (non-iOS desktop path).
+        this.unlocked = true;
+        this.flushQueue();
       }
+    }, 50);
+  }
+
+  private flushQueue(): void {
+    if (!this.queuedText || !this.queuedOnEnd) return;
+    const text  = this.queuedText;
+    const onEnd = this.queuedOnEnd;
+    const myGen = this.gen;
+    this.queuedText  = null;
+    this.queuedOnEnd = null;
+
+    window.speechSynthesis.cancel();
+    this.doSpeak(text, onEnd, myGen);
+  }
+
+  private doSpeak(text: string, done: () => void, myGen: number): void {
+    // Wait for voices to be available (iOS loads them lazily).
+    const startSpeaking = () => {
+      if (this.gen !== myGen) return;
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.onend   = done;
+      utterance.onerror = done;
+
+      // Safety timer: mobile browsers often never fire onend.
+      // ~130 wpm, floor 2 s, cap 30 s.
+      const words = text.trim().split(/\s+/).length;
+      const ms = Math.min(Math.max(Math.ceil((words / 130) * 60_000), 2_000), 30_000);
+      this.safetyTimer = setTimeout(() => {
+        if (this.gen !== myGen) return;
+        done();
+      }, ms);
+
+      window.speechSynthesis.speak(utterance);
     };
 
-    this.pendingSpeak = speak;
-    // One-tick defer: lets the browser process the cancel() before speak().
-    Promise.resolve().then(speak);
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      startSpeaking();
+    } else {
+      const handler = () => {
+        window.speechSynthesis.removeEventListener("voiceschanged", handler);
+        if (this.gen === myGen) startSpeaking();
+      };
+      window.speechSynthesis.addEventListener("voiceschanged", handler);
+      // Fallback if voiceschanged never fires.
+      setTimeout(() => {
+        window.speechSynthesis.removeEventListener("voiceschanged", handler);
+        if (this.gen === myGen) startSpeaking();
+      }, 500);
+    }
+  }
+
+  private clearSafetyTimer(): void {
+    if (this.safetyTimer) { clearTimeout(this.safetyTimer); this.safetyTimer = null; }
   }
 
   stopSpeaking(): void {
-    this.pendingSpeak = null;
-    if (this.safetyTimer) { clearTimeout(this.safetyTimer); this.safetyTimer = null; }
+    this.gen++;
+    this.queuedText  = null;
+    this.queuedOnEnd = null;
+    // Do NOT reset this.unlocked here. The unlock state reflects whether
+    // speechSynthesis.speak() was called in the current gesture session.
+    // Cancelling playback does not revoke the engine unlock.
+    // primeForPlayback() always resets unlocked=false before re-running.
+    this.clearSafetyTimer();
     if (BrowserVoiceProvider.isAvailable()) window.speechSynthesis.cancel();
   }
 }
