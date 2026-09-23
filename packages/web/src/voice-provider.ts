@@ -47,35 +47,92 @@ export class BrowserVoiceProvider implements VoiceProvider {
   }
 
   private safetyTimer: ReturnType<typeof setTimeout> | null = null;
+  // Whether cancel() was called during this gesture — used for the post-cancel tick.
+  private pendingSpeak: (() => void) | null = null;
+
+  /**
+   * primeForPlayback — call synchronously inside the user gesture, BEFORE any
+   * await.  This "touches" the SpeechSynthesis engine while still within the
+   * gesture call stack, which satisfies mobile browsers (iOS Safari, Android
+   * Chrome) that require a gesture to initiate audio.
+   *
+   * It also eagerly triggers voice-list loading: on iOS the voice list is
+   * loaded lazily and calling getVoices() here starts that process so voices
+   * are more likely to be ready when speakText() is called later.
+   */
+  primeForPlayback(): void {
+    if (!BrowserVoiceProvider.isAvailable()) return;
+    // Cancel any in-progress utterance synchronously inside the gesture.
+    window.speechSynthesis.cancel();
+    // Trigger voice-list loading (iOS lazy-loads voices on first getVoices call).
+    window.speechSynthesis.getVoices();
+  }
 
   speakText(text: string, onEnd: () => void): void {
     if (!BrowserVoiceProvider.isAvailable()) { onEnd(); return; }
 
+    // Cancel anything already playing. On Android Chrome a race exists where
+    // calling speak() immediately after cancel() drops the utterance silently.
+    // We always defer speak() by one microtask tick to avoid this.
     window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
 
     let called = false;
     const done = () => {
       if (called) return;
       called = true;
       if (this.safetyTimer) { clearTimeout(this.safetyTimer); this.safetyTimer = null; }
+      this.pendingSpeak = null;
       onEnd();
     };
 
-    utterance.onend   = done;
-    utterance.onerror = done;
+    const speak = () => {
+      // If a newer call came in between the tick and now, bail out.
+      if (this.pendingSpeak !== speak) return;
+      this.pendingSpeak = null;
 
-    // Safety net for browsers that never fire onend (e.g. iOS Safari edge cases).
-    // Estimate ~150 wpm; minimum 3 s, max 60 s.
-    const words = text.split(/\s+/).length;
-    const estimatedMs = Math.min(Math.max(Math.ceil((words / 150) * 60_000), 3_000), 60_000);
-    this.safetyTimer = setTimeout(done, estimatedMs);
+      // On iOS Safari, voices may not be loaded yet. If the voice list is
+      // empty, wait for voiceschanged and then speak; otherwise speak now.
+      const doSpeak = () => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.onend   = done;
+        utterance.onerror = done;
 
-    window.speechSynthesis.speak(utterance);
+        // Safety net: iOS/Android often never fire onend for long utterances.
+        // Use a realistic estimate (~130 wpm) with a tight cap of 30 s so the
+        // UI doesn't stay locked in "speaking" state for a full minute.
+        const words = text.trim().split(/\s+/).length;
+        const estimatedMs = Math.min(Math.max(Math.ceil((words / 130) * 60_000), 2_000), 30_000);
+        this.safetyTimer = setTimeout(done, estimatedMs);
+
+        window.speechSynthesis.speak(utterance);
+      };
+
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        doSpeak();
+      } else {
+        // Voices not loaded yet — wait for the event (fires once on iOS).
+        const handler = () => {
+          window.speechSynthesis.removeEventListener("voiceschanged", handler);
+          doSpeak();
+        };
+        window.speechSynthesis.addEventListener("voiceschanged", handler);
+        // Fallback: if voiceschanged never fires (some browsers), speak anyway
+        // after a short delay so we don't hang forever.
+        setTimeout(() => {
+          window.speechSynthesis.removeEventListener("voiceschanged", handler);
+          if (!called) doSpeak();
+        }, 500);
+      }
+    };
+
+    this.pendingSpeak = speak;
+    // One-tick defer: lets the browser process the cancel() before speak().
+    Promise.resolve().then(speak);
   }
 
   stopSpeaking(): void {
+    this.pendingSpeak = null;
     if (this.safetyTimer) { clearTimeout(this.safetyTimer); this.safetyTimer = null; }
     if (BrowserVoiceProvider.isAvailable()) window.speechSynthesis.cancel();
   }
