@@ -601,6 +601,15 @@ export function AlexaSimulator() {
     // Stop any ongoing TTS
     voiceProviderRef.current.stopSpeaking();
 
+    // ── iOS Audio Unlock ──────────────────────────────────────────────────────
+    // Call primeForPlayback() synchronously HERE, while we are still inside
+    // the user gesture call stack (button tap / form submit).
+    // This pre-creates and unlocks the Audio element on iOS Safari so that
+    // ElevenLabsVoiceProvider.speakText() — which runs after an `await` —
+    // can reuse the already-permitted audio element.
+    voiceProviderRef.current.primeForPlayback?.();
+    // ─────────────────────────────────────────────────────────────────────────
+
     // Add user message
     const userMsg: Message = {
       id: uid(),

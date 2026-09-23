@@ -1622,12 +1622,7 @@ html, body, #root {
   .mobile-topbar { display: flex; }
   .mobile-menu-btn { display: flex; }
 
-  /* Desktop hero — hide on mobile (intro handled this) */
-  .desktop-hero { display: none; }
-  /* Mobile hero — show only on mobile */
-  .mobile-hero { display: flex; flex-direction: column; padding-top: 24px; }
-
-  /* Remove top padding from main content — topbar provides it */
+  /* Home hero on mobile — compact stacked layout */
   .home-hero { padding-top: 24px; }
 
   /* Stack layout on narrow screens */
@@ -1643,8 +1638,18 @@ html, body, #root {
   .agent-panel { margin-left: 20px; margin-right: 20px; }
 
   /* Prevent horizontal overflow globally */
-  .main-content { overflow-x: hidden; }
-  html, body, #root { overflow-x: hidden; }
+  .main-content { overflow-x: hidden; min-width: 0; }
+  html, body, #root { overflow-x: hidden; max-width: 100vw; }
+  .app-shell { max-width: 100vw; }
+
+  /* Ensure all direct children of main-content don't overflow */
+  .home-hero, .command-section, .dashboard-section, .agent-panel { max-width: 100%; }
+
+  /* Suggestion chips — allow wrapping and truncation on narrow screens */
+  .suggestion-chip { white-space: normal; max-width: 100%; }
+
+  /* Command wrap — ensure it doesn't push wider than the viewport */
+  .command-wrap { min-width: 0; }
 
   /* Sidebar nav items — taller tap targets on touch */
   .sidebar-nav-item { padding: 10px 10px; min-height: 44px; }
@@ -1688,7 +1693,7 @@ html, body, #root {
 
   /* Suggestion chips — allow wrap (already flex-wrap) */
   .command-suggestions { gap: 6px; }
-  .suggestion-chip { font-size: 12px; padding: 5px 10px; }
+  .suggestion-chip { font-size: 12px; padding: 5px 10px; white-space: normal; }
 }
 
 /* ── Small mobile: 430px ── */
@@ -1739,49 +1744,77 @@ html, body, #root {
   .suggestion-chip { font-size: 11px; padding: 4px 8px; }
 }
 
-/* Desktop hero visible, mobile hero hidden by default */
+/* Legacy hero display helpers — kept for safety, no longer used in markup */
 .mobile-hero { display: none; }
 .desktop-hero { display: flex; }
 
 /* ═══════════════════════════════════════════════════════════
-   Mobile Introduction Screen
+   Arclio Introduction Screen — Desktop + Mobile
    ═══════════════════════════════════════════════════════════ */
 
 /*
- * Full-screen, vertically centred first-visit screen.
- * Shows only on mobile (≤860px). The component itself is conditionally
- * rendered in App.tsx via JS, so no @media gate is needed here —
- * but we keep it tidy with a max-width cap for edge cases.
+ * Full-viewport first-visit screen shown on ALL device sizes.
+ * Desktop: two-column composition (content left, video right)
+ * Mobile:  single column, vertically stacked
+ *
+ * The component is conditionally rendered in App.tsx via JS
+ * based on localStorage state.
  */
 
-.mobile-intro {
+/* ── Outer wrapper ── */
+.arclio-intro {
   min-height: 100dvh;
-  min-height: 100vh; /* fallback */
+  min-height: 100vh;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  padding: 40px 24px 48px;
-  background: var(--surface);
+  justify-content: center;
+  background: var(--ivory);
   box-sizing: border-box;
   overflow-x: hidden;
-  max-width: 480px;
-  margin: 0 auto;
+  overflow-y: auto;
+  padding: 48px 64px;
+  position: relative;
+}
+
+/* ── Desktop two-column inner layout ── */
+.arclio-intro .ai-inner {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 80px;
   width: 100%;
+  max-width: 1100px;
+}
+
+/* Left column: brand + tagline + CTA */
+.arclio-intro .ai-left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+
+/* Right column: video */
+.arclio-intro .ai-right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Brand row */
-.mi-brand {
+.ai-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 28px;
-  align-self: flex-start;
+  gap: 12px;
+  margin-bottom: 40px;
 }
 
-.mi-brand-logo {
-  width: 32px;
-  height: 32px;
+.ai-brand-logo {
+  width: 36px;
+  height: 36px;
   background: var(--brass);
   border-radius: var(--r-sm);
   display: flex;
@@ -1790,106 +1823,62 @@ html, body, #root {
   flex-shrink: 0;
 }
 
-.mi-brand-logo svg {
-  width: 15px;
-  height: 15px;
+.ai-brand-logo svg {
+  width: 17px;
+  height: 17px;
   stroke: #fff;
   fill: none;
   stroke-width: 2.2;
   stroke-linecap: round;
 }
 
-.mi-brand-name {
-  font-size: 18px;
+.ai-brand-name {
+  font-size: 22px;
   font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
 }
 
-/* Portrait video frame */
-.mi-video-frame {
-  /*
-   * Portrait sizing strategy:
-   *
-   * We want the video to be as wide as possible while keeping the
-   * portrait 9:16 ratio and NOT pushing the CTA off-screen.
-   *
-   * Approach: fix the WIDTH to ~55% of viewport width (using vw).
-   * The height then follows from aspect-ratio: 9/16 naturally.
-   *
-   * 55vw on common phones:
-   *   320px → 176px wide, 313px tall  — visible, leaves room below
-   *   375px → 206px wide, 366px tall  — good balance
-   *   390px → 215px wide, 382px tall  — prominent, CTA reachable
-   *   430px → 237px wide, 421px tall  — excellent portrait presentation
-   *
-   * A min-width floors it at 160px so the frame never becomes tiny.
-   */
-  width: 55vw;
-  min-width: 160px;
-  max-width: 280px;
-  aspect-ratio: 9 / 16;
-  border-radius: var(--r-xl);
-  overflow: hidden;
-  background: var(--charcoal-mid);
-  box-shadow: var(--shadow-lg);
-  position: relative;
-  flex-shrink: 0;
-  align-self: center;
+/* Headline */
+.ai-headline {
+  font-size: 48px;
+  font-weight: 300;
+  color: var(--charcoal);
+  letter-spacing: -0.04em;
+  line-height: 1.08;
+  margin-bottom: 20px;
 }
 
-.mi-video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  /*
-   * cover fills the frame fully so the woman occupies the whole space.
-   * The video IS 9:16 so there are no black bars — cover = contain here.
-   * If the source is exactly 9:16 both produce the same result.
-   */
-  object-fit: cover;
-  object-position: center top;
-  background: var(--charcoal);
+.ai-headline strong {
+  font-weight: 600;
 }
 
-/* Reduced-motion placeholder */
-.mi-video-rm-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--charcoal);
-}
-
-.mi-video-rm-placeholder svg {
-  width: 40px;
-  height: 40px;
-  stroke: var(--brass);
-  fill: none;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  opacity: 0.6;
+/* Tagline (sits below headline on desktop, below video on mobile) */
+.ai-tagline {
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  letter-spacing: -0.01em;
+  max-width: 380px;
+  margin-bottom: 40px;
 }
 
 /* Controls row (Replay + Hear Arclio) */
-.mi-controls {
+.ai-controls {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 10px;
-  margin-top: 16px;
   flex-wrap: wrap;
-  /* Reserve the row height even when empty (during playback, before audio
-     track detected) so the tagline doesn't jump when buttons appear */
+  margin-bottom: 32px;
   min-height: 44px;
 }
 
-.mi-ctrl-btn {
+.ai-ctrl-btn {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 9px 18px;
+  padding: 10px 20px;
   border-radius: 24px;
   border: 1.5px solid var(--border);
   background: var(--surface);
@@ -1899,13 +1888,12 @@ html, body, #root {
   font-family: inherit;
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s, background 0.15s;
-  /* WCAG minimum tap target */
   min-height: 44px;
   white-space: nowrap;
   letter-spacing: -0.005em;
 }
 
-.mi-ctrl-btn svg {
+.ai-ctrl-btn svg {
   width: 15px;
   height: 15px;
   stroke: currentColor;
@@ -1916,47 +1904,29 @@ html, body, #root {
   flex-shrink: 0;
 }
 
-.mi-ctrl-btn:hover {
+.ai-ctrl-btn:hover {
   border-color: var(--brass-border);
   color: var(--brass);
   background: var(--brass-faint);
 }
 
-.mi-ctrl-btn:active {
-  transform: scale(0.97);
-}
+.ai-ctrl-btn:active { transform: scale(0.97); }
 
-.mi-ctrl-btn:focus-visible {
+.ai-ctrl-btn:focus-visible {
   outline: 2px solid var(--brass);
   outline-offset: 2px;
 }
 
-/* "Hear Arclio" — subtle audio affordance */
-.mi-ctrl-btn--audio { }
-
 /* Active (audio-on) state */
-.mi-ctrl-btn--on {
+.ai-ctrl-btn--on {
   border-color: var(--brass-border);
   color: var(--brass);
   background: var(--brass-faint);
 }
 
-/* Tagline */
-.mi-tagline {
-  margin-top: 24px;
-  font-size: 17px;
-  font-weight: 400;
-  color: var(--text-secondary);
-  line-height: 1.55;
-  text-align: center;
-  letter-spacing: -0.01em;
-  max-width: 280px;
-}
-
-/* Get started CTA */
-.mi-cta {
-  margin-top: 28px;
-  padding: 14px 40px;
+/* Get Started CTA */
+.ai-cta {
+  padding: 15px 48px;
   border-radius: var(--r-xl);
   background: var(--charcoal);
   color: #fff;
@@ -1967,45 +1937,203 @@ html, body, #root {
   cursor: pointer;
   letter-spacing: -0.01em;
   transition: background 0.15s, transform 0.1s;
-  min-height: 50px;
-  width: 100%;
-  max-width: 320px;
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.mi-cta:hover {
-  background: var(--charcoal-lt);
-}
-
-.mi-cta:active {
-  transform: scale(0.98);
-}
-
-.mi-cta:focus-visible {
+.ai-cta:hover { background: var(--charcoal-lt); }
+.ai-cta:active { transform: scale(0.98); }
+.ai-cta:focus-visible {
   outline: 2px solid var(--brass);
   outline-offset: 2px;
 }
 
-/* Tiny phone ≤375px — tighten spacing, shrink video slightly */
-@media (max-width: 375px) {
-  .mobile-intro { padding: 28px 18px 36px; }
-  /* Tighter brand margin */
-  .mi-brand { margin-bottom: 20px; }
-  /* Slightly narrower video so CTA stays comfortably on-screen */
-  .mi-video-frame { width: 50vw; }
-  .mi-controls { margin-top: 12px; }
-  .mi-tagline { font-size: 15px; margin-top: 18px; }
-  .mi-cta { font-size: 14px; padding: 12px 28px; margin-top: 20px; }
+/* Portrait video frame — desktop */
+.ai-video-frame {
+  width: 100%;
+  max-width: 360px;
+  aspect-ratio: 9 / 16;
+  border-radius: var(--r-2xl);
+  overflow: hidden;
+  background: var(--charcoal-mid);
+  box-shadow: var(--shadow-lg);
+  position: relative;
+  flex-shrink: 0;
 }
 
+.ai-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  background: var(--charcoal);
+}
+
+/* Reduced-motion placeholder */
+.ai-video-rm-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: var(--charcoal);
+}
+
+.ai-video-rm-placeholder svg {
+  width: 48px;
+  height: 48px;
+  stroke: var(--brass);
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+
+.ai-video-rm-placeholder p {
+  color: var(--text-muted);
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ── Desktop/mobile visibility toggles ──
+ *
+ * On DESKTOP (> 860px):
+ *   - ai-controls-desktop (wrapper in left col): visible
+ *   - ai-below-video (below video on mobile): hidden
+ *   - ai-tagline--desktop: visible, ai-tagline--mobile: hidden
+ *   - ai-cta--desktop: visible, ai-cta--mobile: hidden
+ *
+ * On MOBILE (≤ 860px):
+ *   - ai-controls-desktop: hidden (controls appear in ai-below-video instead)
+ *   - ai-below-video: visible
+ *   - ai-tagline--desktop: hidden, ai-tagline--mobile: visible
+ *   - ai-cta--desktop: hidden, ai-cta--mobile: visible
+ */
+
+/* Desktop defaults — mobile elements hidden */
+.ai-below-video {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 320px;
+}
+.ai-controls-desktop { display: block; }
+.ai-tagline--mobile { display: none; }
+.ai-cta--mobile { display: none; }
+
+/* ─────────────────────────────────────────────────────────────────
+   MOBILE: single-column stacked layout (≤ 860px)
+   ───────────────────────────────────────────────────────────────── */
+@media (max-width: 860px) {
+  .arclio-intro {
+    padding: 40px 24px 48px;
+    justify-content: flex-start;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  /* Single column — all items stack */
+  .arclio-intro .ai-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    max-width: 480px;
+    width: 100%;
+  }
+
+  .arclio-intro .ai-left {
+    align-items: flex-start;
+    order: 1;
+    width: 100%;
+  }
+
+  .arclio-intro .ai-right {
+    order: 2;
+    margin-top: 24px;
+    align-items: center;
+    width: 100%;
+  }
+
+  /* Brand: left-aligned at top */
+  .ai-brand {
+    margin-bottom: 0;
+  }
+
+  /* Hide desktop-only elements on mobile */
+  .ai-headline { display: none; }
+  .ai-controls-desktop { display: none; }
+  .ai-tagline--desktop { display: none; }
+  .ai-cta--desktop { display: none; }
+
+  /* Show mobile elements */
+  .ai-below-video {
+    display: flex;
+    align-items: center;
+    margin-top: 20px;
+  }
+  .ai-tagline--mobile { display: block; }
+  .ai-cta--mobile { display: inline-flex; }
+
+  .ai-tagline {
+    text-align: center;
+    font-size: 17px;
+    margin-bottom: 24px;
+    margin-top: 16px;
+    max-width: 320px;
+  }
+
+  .ai-cta {
+    width: 100%;
+    max-width: 320px;
+  }
+
+  /* Video frame — portrait, width-driven */
+  .ai-video-frame {
+    width: 55vw;
+    min-width: 160px;
+    max-width: 280px;
+  }
+}
+
+/* ── 640px ── */
+@media (max-width: 640px) {
+  .arclio-intro { padding: 32px 20px 40px; }
+  .ai-tagline { font-size: 16px; }
+}
+
+/* ── 430px ── */
+@media (max-width: 430px) {
+  .arclio-intro { padding: 28px 16px 36px; }
+  .ai-video-frame { width: 58vw; }
+  .ai-tagline { font-size: 15px; margin-top: 16px; }
+  .ai-cta { font-size: 14px; padding: 13px 28px; }
+}
+
+/* ── 375px ── */
+@media (max-width: 375px) {
+  .arclio-intro { padding: 24px 14px 32px; }
+  .ai-video-frame { width: 56vw; }
+  .ai-controls { margin-top: 12px; }
+  .ai-tagline { font-size: 15px; margin-top: 14px; }
+  .ai-cta { font-size: 14px; padding: 12px 28px; min-height: 46px; }
+}
+
+/* ── 320px ── */
 @media (max-width: 320px) {
-  .mobile-intro { padding: 20px 14px 28px; }
-  .mi-brand { margin-bottom: 16px; }
-  .mi-brand-name { font-size: 16px; }
-  /* Even narrower on very small screens */
-  .mi-video-frame { width: 48vw; }
-  .mi-controls { margin-top: 10px; min-height: 36px; }
-  .mi-tagline { font-size: 14px; max-width: 260px; margin-top: 14px; }
-  .mi-cta { margin-top: 16px; min-height: 44px; }
+  .arclio-intro { padding: 20px 12px 28px; }
+  .ai-brand-name { font-size: 18px; }
+  .ai-video-frame { width: 54vw; min-width: 140px; }
+  .ai-controls { min-height: 36px; }
+  .ai-tagline { font-size: 14px; max-width: 260px; }
+  .ai-cta { min-height: 44px; margin-top: 16px; }
 }
 
 /* ═══════════════════════════════════════════════════════════

@@ -1,5 +1,4 @@
-import { useState, useRef, useEffect } from "react";
-import heroPoster from "./assets/hero.png";
+import { useState } from "react";
 import { Sidebar } from "./components/Sidebar.js";
 import { AgentInput } from "./components/AgentInput.js";
 import { AgentResponsePanel } from "./components/AgentResponsePanel.js";
@@ -15,19 +14,9 @@ import { AlexaSimulator } from "./components/AlexaSimulator.js";
 import { MobileIntro } from "./components/MobileIntro.js";
 import type { AgentResponse } from "./types.js";
 
-const HERO_VIDEO = "/videos/ElevenLabs_video_creatify-aurora_2026-09-23T02_01_22.mp4";
 const INTRO_SEEN_KEY = "arclio_intro_seen_v1";
 
 type Page = "home" | "calendar" | "procurement" | "deliveries" | "security" | "reports" | "settings" | "alexa";
-
-// ---------------------------------------------------------------------------
-// Detect mobile viewport (≤ 860 px — matches the CSS off-canvas breakpoint)
-// ---------------------------------------------------------------------------
-
-function isMobileViewport(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.matchMedia("(max-width: 860px)").matches;
-}
 
 function hasSeenIntro(): boolean {
   try {
@@ -43,96 +32,6 @@ function markIntroSeen(): void {
   } catch {
     // Private-browsing or storage unavailable — just skip silently
   }
-}
-
-// ---------------------------------------------------------------------------
-// HeroVideo — desktop/tablet hero with muted autoplay and opt-in audio
-// ---------------------------------------------------------------------------
-
-function HeroVideo() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [muted, setMuted] = useState(true);
-  const [hasAudio, setHasAudio] = useState(false);
-
-  // Detect reduced-motion preference once on mount
-  const prefersReducedMotion =
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  // Probe for an audio track after the video metadata loads
-  function handleMetadata() {
-    const v = videoRef.current;
-    if (!v) return;
-    const tracks = (v as HTMLVideoElement & { audioTracks?: { length: number } }).audioTracks;
-    setHasAudio(!tracks || tracks.length > 0);
-  }
-
-  // Keep the video element's muted property in sync with state.
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    v.muted = muted;
-    if (!muted) {
-      v.play().catch(() => {
-        setMuted(true);
-      });
-    }
-  }, [muted]);
-
-  function toggleAudio() {
-    setMuted((m) => !m);
-  }
-
-  return (
-    <div className="hero-video-wrap" aria-label="Arclio product video">
-      {prefersReducedMotion ? (
-        <img
-          src={heroPoster}
-          alt="Arclio — AI orchestration for the real world"
-          className="hero-video-poster-fallback"
-        />
-      ) : (
-        <video
-          ref={videoRef}
-          className="hero-video"
-          src={HERO_VIDEO}
-          poster={heroPoster}
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="metadata"
-          onLoadedMetadata={handleMetadata}
-          aria-hidden="true"
-        />
-      )}
-
-      {!prefersReducedMotion && hasAudio && (
-        <button
-          className={`hero-audio-btn${muted ? "" : " hero-audio-btn--on"}`}
-          onClick={toggleAudio}
-          aria-label={muted ? "Enable video audio" : "Mute video audio"}
-          title={muted ? "Hear Arclio" : "Mute"}
-          type="button"
-        >
-          {muted ? (
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-              <line x1="23" y1="9" x2="17" y2="15" />
-              <line x1="17" y1="9" x2="23" y2="15" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-              <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-              <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-            </svg>
-          )}
-          <span>{muted ? "Hear Arclio" : "Mute"}</span>
-        </button>
-      )}
-    </div>
-  );
 }
 
 function getGreeting(): string {
@@ -191,9 +90,9 @@ export default function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  // Show intro only on mobile and only on first visit
+  // Show intro on first visit — all viewports (desktop and mobile)
   const [showIntro, setShowIntro] = useState<boolean>(() => {
-    return isMobileViewport() && !hasSeenIntro();
+    return !hasSeenIntro();
   });
 
   function handleGetStarted() {
@@ -283,24 +182,8 @@ export default function App() {
           {/* ── HOME / COMMAND CENTER ── */}
           {page === "home" && (
             <>
-              {/* Hero header — desktop/tablet layout */}
-              <div className="home-hero desktop-hero">
-                <div className="home-hero-content">
-                  <div className="hero-greeting">{getGreeting()}, Prince</div>
-                  <div className="hero-date">
-                    {new Date().toLocaleDateString("en-US", {
-                      weekday: "long", year: "numeric", month: "long", day: "numeric",
-                    })}
-                  </div>
-                  <div className="hero-sub">
-                    <strong>Ask Arclio.</strong> Approve. Done.
-                  </div>
-                </div>
-                <HeroVideo />
-              </div>
-
-              {/* Mobile greeting header — stacked, no video (intro already shown) */}
-              <div className="home-hero mobile-hero">
+              {/* Hero header — text only, no video (intro was the welcome experience) */}
+              <div className="home-hero">
                 <div className="home-hero-content">
                   <div className="hero-greeting">{getGreeting()}, Prince</div>
                   <div className="hero-date">
