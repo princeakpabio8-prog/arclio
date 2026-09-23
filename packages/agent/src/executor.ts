@@ -1,12 +1,12 @@
 /**
  * MCP tool executor
  *
- * Two execution paths — selected by MCP_BASE_URL env var:
+ * Two execution paths — selected at runtime:
  *
- *   HTTP (local dev)   MCP_BASE_URL=http://localhost:3001/mcp
+ *   HTTP (local dev)   MCP_BASE_URL=http://localhost:3001/mcp  AND  VERCEL not set
  *     Connects to the standalone MCP server over Streamable HTTP / JSON-RPC.
  *
- *   Direct (production / Vercel)   MCP_BASE_URL not set
+ *   Direct (production / Vercel)   VERCEL=1  OR  MCP_BASE_URL not set
  *     Calls @arclio/mcp-server/direct functions in-process.
  *     No HTTP round-trip, no localhost dependency — Vercel bundles the
  *     workspace package at build time.
@@ -18,7 +18,9 @@
 
 import type { Plan, ToolCall, ToolResult, ToolName } from "./types.js";
 
-const MCP_BASE_URL = process.env.MCP_BASE_URL; // undefined → use direct in-process path
+// On Vercel (VERCEL=1 is set automatically by the platform), always use the
+// direct in-process path — even if MCP_BASE_URL happens to be set.
+const MCP_BASE_URL = process.env.VERCEL ? undefined : process.env.MCP_BASE_URL;
 
 // ---------------------------------------------------------------------------
 // Low-level MCP JSON-RPC helpers

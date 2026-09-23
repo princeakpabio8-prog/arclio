@@ -35,7 +35,12 @@ import cors from "cors";
 // MCP call strategy — HTTP (local dev) vs direct in-process (production)
 // ---------------------------------------------------------------------------
 
-const MCP_URL = process.env.MCP_BASE_URL; // undefined → use direct calls
+// On Vercel (VERCEL=1 is set automatically by the platform), always use the
+// direct in-process path — even if MCP_BASE_URL happens to be set in the
+// project's environment variables.  localhost:3001 is unreachable in a
+// serverless function; attempting to connect produces the "MCP server not
+// reachable" error visible on the live dashboard.
+const MCP_URL = process.env.VERCEL ? undefined : process.env.MCP_BASE_URL;
 
 // --- HTTP path (local dev only) -------------------------------------------
 
