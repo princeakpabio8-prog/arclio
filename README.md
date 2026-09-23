@@ -76,7 +76,9 @@ flowchart TD
 | **Security** | Access events, alerts, and anomalies from the security log |
 | **Communications** | Pending approvals, supplier replies, outstanding actions |
 | **Follow-ups** | What is due today and what needs a response |
-| **Voice** | Full voice I/O in the Alexa+ Simulator (ElevenLabs TTS + browser speech input) |
+| **Voice interaction** | Speech input via browser Web Speech API; voice output via ElevenLabs (primary) or browser SpeechSynthesis (fallback) |
+| **Alexa+ Simulator** | Simulated voice-assistant experience demonstrating Arclio over Alexa+/MCP concepts |
+| **MCP-based tool orchestration** | All real-world actions pass through registered, validated MCP tools |
 
 ---
 
@@ -102,33 +104,69 @@ The execution path is selected automatically: if `MCP_BASE_URL` is not set, the 
 
 ---
 
-## Alexa+ Simulator
-
-Arclio includes a dedicated **Alexa+ Simulation** experience built for the hackathon. It is a polished conversational interface that demonstrates how Arclio would work when accessed through an Alexa+ voice interaction.
-
-> **Note:** This is a simulated Alexa+ experience. It does not use the official Alexa+ runtime and does not claim to. It is a purpose-built web UI that replicates the interaction model — voice input, voice response, suggested prompts, and a staged execution timeline — using the browser Web Speech API and ElevenLabs TTS. The same Arclio agent pipeline powers it.
-
-**Access:** open the app → click **Alexa+ Simulator** in the sidebar.
-
-**Features:**
-- Voice input via browser Web Speech API
-- Text-to-speech responses (ElevenLabs in production; browser SpeechSynthesis as fallback)
-- Suggested prompt chips for one-click demo flows
-- Staged execution timeline (Listening → Understanding → Planning → Executing → Verifying)
-- Tool-call cards surfacing which MCP tools ran and what they returned
-
----
-
 ## Voice
 
-Voice output in the Alexa+ Simulator is handled by two layers:
+Users can interact with Arclio by text or voice. Both the Command Center and the Alexa+ Simulator support voice input.
+
+### Speech Input
+
+Browser `SpeechRecognition` (including `webkitSpeechRecognition`) is used for speech-to-text. Availability varies by browser:
+
+| Browser | Speech input |
+|---|---|
+| Chrome, Edge | ✓ Full support |
+| Safari (macOS/iOS) | ✓ Partial support |
+| Firefox | ✗ Not supported |
+
+When speech input is unavailable, text input is always available as a fallback.
+
+**Mobile / iOS lifecycle hardening (commit `5d50099`):**
+
+On iOS/WebKit, an `HTMLVideoElement` that has played audio retains the audio session even after the component unmounts. This causes a subsequent `SpeechRecognition` instance to silently hang — `onstart` fires, but `onresult`/`onerror`/`onend` never fire because WebKit will not grant speech the audio session while video holds it.
+
+The current implementation addresses this with:
+
+- **Audio session release** — `MobileIntro.handleGetStarted()` calls `video.pause()` + `video.src=""` + `video.load()` synchronously inside the user-gesture tap, releasing the audio session before the Command Center mounts.
+- **Fresh recognition lifecycle** — both the Command Center microphone (`AgentInput`) and the Alexa+ Simulator microphone (`AlexaSimulator`) call `abortRecognition()` before every new `start()`, discarding any stale instance.
+- **Watchdog timer** — `onstart` triggers an 8-second watchdog. If no `onresult`, `onerror`, or `onend` arrives, the hung instance is aborted, the UI resets to idle, and a user-readable message is shown.
+- **Handler cleanup** — all event handlers are nulled before `abort()` to prevent ghost callbacks.
+- **Graceful fallback** — permission-denied errors surface an actionable message; unrecoverable errors reset cleanly to idle.
+- **Unmount cleanup** — recognition instances are aborted and nulled on component unmount.
+
+### Voice Output (TTS)
+
+Voice responses use two layers:
 
 | Layer | When used |
 |---|---|
 | **ElevenLabs** | When `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` are configured. Low-latency streaming TTS via `eleven_flash_v2_5` (default model). |
-| **Browser SpeechSynthesis** | Fallback when ElevenLabs is not configured. Zero cost, no API key required. |
+| **Browser SpeechSynthesis** | Fallback when ElevenLabs is not configured, or if ElevenLabs returns an error. Zero cost, no API key required. |
 
-When both are configured, the simulator offers a voice-source toggle. No credentials or voice IDs are exposed to the browser.
+When ElevenLabs is configured, the simulator offers a voice-source toggle. The API key and voice ID are server-side only — they are never sent to the browser. On any ElevenLabs error, the implementation falls back to browser TTS silently so the demo continues without interruption.
+
+**iOS/Mobile audio unlock:** `ElevenLabsVoiceProvider` exposes a `primeForPlayback()` method that must be called synchronously inside the user-gesture handler before the async fetch begins. This creates and unlock-taps an `Audio` element while still within the gesture call stack, satisfying iOS Safari's requirement for user-gesture-gated audio even when playback happens after an `await`.
+
+---
+
+## Alexa+ Simulator
+
+Arclio includes a dedicated **Alexa+ Simulation** experience built for the hackathon. It is a polished conversational interface that demonstrates how Arclio would work when accessed through an Alexa+ voice interaction.
+
+> **Important:** This is a simulated Alexa+ experience. It does **not** run inside the official Alexa+ runtime and does not claim to. It is a purpose-built web UI that replicates the conversational interaction model — voice input, voice output, suggested prompts, and a staged execution timeline — using the same Arclio agent pipeline, browser Web Speech API, and ElevenLabs TTS. The "Alexa+ Simulation" badge is displayed prominently in the UI to make this clear.
+
+**Access:** open the app → click **Alexa+ Simulator** in the sidebar.
+
+**Features:**
+- Voice input via browser Web Speech API (with iOS lifecycle hardening)
+- Text-to-speech responses (ElevenLabs in production; browser SpeechSynthesis as fallback)
+- Suggested prompt chips for one-click demo flows
+- Staged execution timeline (Listening → Understanding → Planning → Executing → Verifying)
+- Tool-call cards surfacing which MCP tools ran and what they returned
+- The same Arclio agent pipeline powers it — no mock or short-circuit
+
+**Connecting to real Alexa+ (when Amazon access is granted):**
+
+No backend changes are required. Registering `POST /mcp` as a remote MCP server endpoint in the Alexa+ developer console is sufficient — Alexa+ would call the same tool names the simulator exercises today.
 
 ---
 
@@ -217,7 +255,7 @@ arclio/
 │   │       │   ├── bedrock.ts       # Amazon Bedrock (Converse API)
 │   │       │   ├── stub.ts          # Deterministic offline provider
 │   │       │   └── index.ts         # Provider factory
-│   │       └── tests/               # Unit tests (30 passing)
+│   │       └── tests/               # Unit tests (38 passing)
 │   │
 │   ├── mcp-server/          # MCP tool layer
 │   │   └── src/
@@ -234,6 +272,7 @@ arclio/
 │   ├── api/                 # HTTP bridge — web UI ↔ agent
 │   │   └── src/
 │   │       ├── app.ts               # Express: /api/agent, /api/dashboard, data endpoints
+│   │       │                        # Voice endpoints: GET /api/voice/config, POST /api/voice/tts
 │   │       └── tests/
 │   │           └── voice.test.ts    # ElevenLabs proxy unit tests (8 tests)
 │   │
@@ -242,10 +281,12 @@ arclio/
 │           ├── App.tsx
 │           ├── api.ts               # Typed API client
 │           ├── types.ts             # Shared UI types
+│           ├── voice-provider.ts    # VoiceProvider abstraction (Browser + ElevenLabs)
 │           └── components/
-│               ├── AlexaSimulator.tsx
-│               ├── AgentInput.tsx
+│               ├── AlexaSimulator.tsx   # Alexa+ Simulator page
+│               ├── AgentInput.tsx       # Command Center input + mic (with iOS hardening)
 │               ├── AgentResponsePanel.tsx
+│               ├── MobileIntro.tsx      # Introduction screen (video + audio session fix)
 │               ├── ActivityFeed.tsx
 │               ├── CalendarCard.tsx
 │               ├── DeliveriesCard.tsx
@@ -254,6 +295,12 @@ arclio/
 │               ├── ReportsPage.tsx
 │               ├── SettingsPage.tsx
 │               └── Sidebar.tsx
+│
+├── docs/
+│   ├── architecture.md              # Technical architecture reference
+│   ├── alexa-simulation.md          # Alexa+ Simulation detail
+│   └── architecture/
+│       └── governance.md            # Governance & future architecture roadmap
 │
 ├── .env.example
 ├── package.json             # Monorepo root (npm workspaces)
@@ -342,7 +389,7 @@ node packages/agent/dist/verify-bedrock-live.js
 | `MCP_BASE_URL` | No | *(unset → direct path)* | MCP server URL for local dev (`http://localhost:3001/mcp`) |
 | `PORT` | No | `3001` | MCP server port (local dev) |
 | `API_PORT` | No | `3002` | API server port (local dev) |
-| `ELEVENLABS_API_KEY` | No | — | ElevenLabs API key (Alexa+ Simulator voice) |
+| `ELEVENLABS_API_KEY` | No | — | ElevenLabs API key (voice TTS) |
 | `ELEVENLABS_VOICE_ID` | No | — | ElevenLabs voice ID |
 | `ELEVENLABS_MODEL_ID` | No | `eleven_flash_v2_5` | ElevenLabs model |
 | `ARCLIO_NOTIFY_FILE` | No | *(unset → in-memory)* | Set to `1` to enable file-backed notification store (local dev cross-process) |
@@ -366,7 +413,7 @@ node packages/agent/dist/verify-bedrock-live.js
 
 | Capability | Status |
 |---|---|
-| Natural-language command input | ✓ |
+| Natural-language command input (text and voice) | ✓ |
 | Intent detection and plan generation | ✓ |
 | Structured plan validation (tool allowlist) | ✓ |
 | MCP tool execution — HTTP and direct in-process | ✓ |
@@ -380,11 +427,48 @@ node packages/agent/dist/verify-bedrock-live.js
 | Result verification (passed / partial / failed) | ✓ |
 | Amazon Bedrock provider (Claude Sonnet 4.6) | ✓ |
 | StubProvider for offline development | ✓ |
-| Web command center (React) | ✓ |
+| Web command center with microphone interaction (React) | ✓ |
 | Activity timeline and agent response panel | ✓ |
 | Notification store (in-memory + file-backed opt-in) | ✓ |
 | Alexa+ Simulator (web — simulated experience) | ✓ |
 | ElevenLabs TTS with browser fallback | ✓ |
+| Mobile/iOS speech lifecycle hardening | ✓ |
+| Introduction screen with product video | ✓ |
+
+---
+
+## Governance & Future Architecture
+
+> **Note:** This section describes the *intended long-term architectural direction*. The current implementation is a hackathon/demo build and is intentionally lightweight. It does not provide enterprise-grade governance, RBAC, audit infrastructure, or production authorization controls.
+
+The current execution model is:
+
+```
+Understand → Plan → Execute → Verify
+```
+
+The intended long-term model adds governance and audit layers:
+
+```
+Understand → Plan → Governance → Execute → Verify → Audit
+```
+
+Future governance capabilities under consideration include:
+
+| Layer | Purpose |
+|---|---|
+| **Identity** | Who is making the request? |
+| **Authorization** | Is this actor permitted to take this action? |
+| **Policy enforcement** | Does the action comply with organizational rules? |
+| **Human approval** | Does this action require explicit human sign-off before execution? |
+| **Action-level permissions** | Fine-grained control over which tools a given actor may invoke |
+| **Auditability** | Immutable record of what was requested, planned, executed, and verified |
+| **Organizational memory** | Accumulated operational context across sessions |
+| **Verified execution history** | Cryptographically or otherwise tamper-evident record of completed actions |
+
+See [`docs/architecture/governance.md`](docs/architecture/governance.md) for the full architecture description.
+
+Arclio's long-term differentiation is intended to come from its orchestration and governed execution layer — not from owning a foundation model. Potential long-term differentiators include cross-system operational context, action orchestration, verified execution, organization-specific policies, approval structures, and accumulated operational history. These are architectural intentions, not claims about the current demo.
 
 ---
 
@@ -397,19 +481,38 @@ Arclio demonstrates a practical AI orchestration layer for business operations, 
 **Technologies used:**
 - Amazon Bedrock (Claude Sonnet 4.6, Converse API, global inference profile)
 - Model Context Protocol (MCP) — Streamable HTTP transport + direct in-process path
-- ElevenLabs (voice synthesis for the Alexa+ Simulator)
+- ElevenLabs (voice synthesis — primary TTS provider)
+- Browser Web Speech API (speech input + TTS fallback)
 - TypeScript · Node.js · React · Vite · Express · Vercel
 
 ---
 
 ## Roadmap
 
+### Current / Hackathon
+
+- [x] Agentic business orchestration (Understand → Plan → Execute → Verify)
+- [x] MCP tool layer
+- [x] Voice interaction (browser speech input + ElevenLabs TTS)
+- [x] Business operations dashboard
+- [x] Alexa+ simulated experience
+- [x] Responsive web experience (desktop + mobile)
+- [x] Mobile/iOS speech lifecycle hardening
+
+### Future
+
+- [ ] Governance and policy engine
+- [ ] Identity and granular authorization
+- [ ] Human approval workflows
+- [ ] Action audit trail
+- [ ] Organizational memory
 - [ ] Persistent data layer (replace in-memory mock data)
-- [ ] Real Alexa+ skill registration and runtime integration
+- [ ] Deeper enterprise integrations (ERP, Google Calendar, physical access)
 - [ ] Additional MCP tool groups (HR, facilities, finance)
-- [ ] Multi-step approval workflows
-- [ ] Real business system connectors (ERP, Google Calendar, physical access)
-- [ ] AWS deployment (Lambda / ECS)
+- [ ] Real Alexa+ skill registration and runtime integration
+- [ ] Production-grade governance and compliance controls
+
+No specific delivery dates are committed.
 
 ---
 
