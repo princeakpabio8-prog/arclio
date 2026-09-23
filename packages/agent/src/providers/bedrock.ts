@@ -78,7 +78,7 @@ ${toolList.join("\n\n")}
 OUTPUT FORMAT — respond with ONLY this JSON object, no markdown fences, no explanation:
 {
   "userInput": "<the original user input>",
-  "intent": "<one of: office_briefing | delivery_status | mark_received | calendar_only | security_only | unknown>",
+  "intent": "<one of: business_briefing | needs_attention | waiting_on_me | follow_ups | handle_approval | office_briefing | delivery_status | mark_received | calendar_only | security_only | unknown>",
   "steps": [
     {
       "tool": "<tool name from the registered list above>",
@@ -87,6 +87,19 @@ OUTPUT FORMAT — respond with ONLY this JSON object, no markdown fences, no exp
     }
   ]
 }
+
+INTENT GUIDE (use the most specific match):
+- business_briefing  : broad operational snapshot — "give me my business briefing", "daily update", "morning briefing"
+- needs_attention    : urgent items across all systems — "what needs my attention", "what's urgent", "what should I focus on"
+- waiting_on_me      : pending approvals or items waiting for the user — "is anything waiting on me", "pending approvals", "what's outstanding"
+- follow_ups         : items the user should follow up on — "what should I follow up on today", "pending tasks", "to-do today"
+- handle_approval    : act on a pending procurement or approval — "handle the procurement one", "approve that"
+- office_briefing    : what's happening at the office today — "what's happening at the office", "daily briefing", "what's on today"
+- delivery_status    : check whether a delivery has arrived — "is the Acme delivery here", "delivery status"
+- mark_received      : mark a delivery as received — "mark the Acme delivery as received", "handle the Acme delivery", "sign for delivery"
+- calendar_only      : meetings and calendar events only — "what meetings do I have", "my calendar"
+- security_only      : security events or alerts only — "show security events", "any alerts"
+- unknown            : no intent could be determined
 
 RULES:
 - steps may be empty [] if the intent is "unknown" or no tools are needed.

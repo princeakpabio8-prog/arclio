@@ -30,6 +30,20 @@ test("StubProvider.name is 'stub'", () => {
   assert.equal(stub.name, "stub");
 });
 
+test("business_briefing — 'Give me a business briefing today'", async () => {
+  const plan = await stub.buildPlan("Give me a business briefing today");
+  assert.equal(plan.intent, "business_briefing");
+  const tools = toolNames(plan);
+  assert.ok(tools.includes("get_today_calendar"), "missing get_today_calendar");
+  assert.ok(tools.includes("get_pending_deliveries"), "missing get_pending_deliveries");
+  assert.ok(tools.includes("get_security_events"), "missing get_security_events");
+});
+
+test("business_briefing — 'Give me my business briefing'", async () => {
+  const plan = await stub.buildPlan("Give me my business briefing");
+  assert.equal(plan.intent, "business_briefing");
+});
+
 test("office_briefing — calls all three tools", async () => {
   const plan = await stub.buildPlan("What's happening at the office today?");
   assert.equal(plan.intent, "office_briefing");
@@ -122,6 +136,11 @@ test("office_briefing — 'What is on today' still routes correctly", async () =
 test("office_briefing — NOT triggered by attention query containing 'on'", async () => {
   const plan = await stub.buildPlan("What do I need to pay attention to today?");
   assert.notEqual(plan.intent, "office_briefing");
+});
+
+test("waiting_on_me — 'Is anything waiting on me?'", async () => {
+  const plan = await stub.buildPlan("Is anything waiting on me?");
+  assert.equal(plan.intent, "waiting_on_me");
 });
 
 test("unknown intent — returns empty steps", async () => {

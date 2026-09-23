@@ -14,6 +14,7 @@ import { verifyResults } from "./verifier.js";
 import { buildAnswer } from "./synthesizer.js";
 import type { LLMProvider } from "./llm-provider.js";
 import type { AgentResponse, Plan } from "./types.js";
+import { StubProvider } from "./providers/stub.js";
 
 // ---------------------------------------------------------------------------
 // Provider singleton — initialised once on first call
@@ -63,6 +64,36 @@ export async function runAgent(userInput: string): Promise<AgentResponse> {
     }
     // Safe fallback — unknown intent, no tool calls
     plan = { userInput, intent: "unknown", steps: [] };
+  }
+
+  // Stage 1c — Stub fallback when the primary provider returned unknown
+  //
+  // When ARCLIO_LLM_PROVIDER=bedrock but Bedrock fails (expired credentials,
+  // network error, quota exceeded, etc.), BedrockProvider.buildPlan() catches
+  // the error internally and returns intent:"unknown".  Without this fallback,
+  // every request on the production site shows "Failed" even though the stub
+  // planner can still handle standard queries deterministically.
+  //
+  // Only applies when the active provider is NOT the stub itself.  For genuine
+  // unknown inputs the stub also returns "unknown", so behaviour is unchanged.
+  if (plan.intent === "unknown" && provider.name !== "stub") {
+    console.warn(
+      `[agent] Primary provider '${provider.name}' returned unknown intent — ` +
+        "falling back to stub planner for deterministic intent matching",
+    );
+    try {
+      const stub = new StubProvider();
+      const stubPlan = await stub.buildPlan(userInput);
+      if (stubPlan.intent !== "unknown") {
+        plan = stubPlan;
+        console.log(
+          `[agent] Stub fallback matched intent: ${plan.intent} | steps: ${plan.steps.length}`,
+        );
+      }
+    } catch (stubErr) {
+      console.error("[agent] Stub fallback error:", stubErr);
+      // Keep the original unknown plan
+    }
   }
 
   console.log(
