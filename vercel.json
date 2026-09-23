@@ -8,25 +8,30 @@
       "maxDuration": 60
     }
   },
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index.ts" },
-    { "source": "/health",     "destination": "/api/index.ts" },
-    { "source": "/:path*",     "destination": "/index.html" }
-  ],
-  "headers": [
+  "routes": [
     {
-      "source": "/videos/(.*)\\.mp4",
-      "headers": [
-        { "key": "Content-Type",  "value": "video/mp4" },
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" },
-        { "key": "Accept-Ranges", "value": "bytes" }
-      ]
+      "src": "/api/(.*)",
+      "dest": "/api/index.ts"
     },
     {
-      "source": "/assets/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
-      ]
+      "src": "/health",
+      "dest": "/api/index.ts"
+    },
+    {
+      "src": "/videos/(.*)",
+      "dest": "/videos/$1",
+      "headers": {
+        "Content-Type": "video/mp4",
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "Accept-Ranges": "bytes"
+      }
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }
