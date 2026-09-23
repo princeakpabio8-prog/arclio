@@ -1622,20 +1622,19 @@ html, body, #root {
   .mobile-topbar { display: flex; }
   .mobile-menu-btn { display: flex; }
 
-  /* Remove top padding from main content — topbar provides it */
-  .home-hero { padding-top: 28px; }
+  /* Desktop hero — hide on mobile (intro handled this) */
+  .desktop-hero { display: none; }
+  /* Mobile hero — show only on mobile */
+  .mobile-hero { display: flex; flex-direction: column; padding-top: 24px; }
 
-  /* Stack video below text on narrow screens */
+  /* Remove top padding from main content — topbar provides it */
+  .home-hero { padding-top: 24px; }
+
+  /* Stack layout on narrow screens */
   .home-hero {
     flex-direction: column;
     align-items: flex-start;
-    gap: 20px;
-  }
-  .hero-video-wrap {
-    /* Full-width, short banner on tablet/mobile */
-    width: 100%;
-    max-height: 160px;
-    aspect-ratio: 16 / 7;
+    gap: 16px;
   }
 
   .dashboard-grid { grid-template-columns: 1fr; }
@@ -1646,6 +1645,9 @@ html, body, #root {
   /* Prevent horizontal overflow globally */
   .main-content { overflow-x: hidden; }
   html, body, #root { overflow-x: hidden; }
+
+  /* Sidebar nav items — taller tap targets on touch */
+  .sidebar-nav-item { padding: 10px 10px; min-height: 44px; }
 }
 
 /* ── Mobile: 640px ── */
@@ -1660,7 +1662,6 @@ html, body, #root {
   .page-content { gap: 20px; padding-bottom: 40px; }
 
   .hero-greeting { font-size: 22px; }
-  .hero-video-wrap { max-height: 140px; aspect-ratio: 16 / 6; }
   .page-title    { font-size: 18px; }
 
   /* Page header — stack on mobile */
@@ -1678,7 +1679,7 @@ html, body, #root {
   }
   .settings-key { min-width: unset; }
 
-  /* Cards */
+  /* Cards — comfortable spacing */
   .card { padding: 16px 18px; }
 
   /* Command input */
@@ -1693,13 +1694,12 @@ html, body, #root {
 /* ── Small mobile: 430px ── */
 @media (max-width: 430px) {
   .page-content, .command-section, .dashboard-section, .home-hero {
-    padding-left: 12px;
-    padding-right: 12px;
+    padding-left: 14px;
+    padding-right: 14px;
   }
-  .agent-panel { margin-left: 12px; margin-right: 12px; }
+  .agent-panel { margin-left: 14px; margin-right: 14px; }
 
   .hero-greeting { font-size: 20px; }
-  .hero-video-wrap { max-height: 120px; aspect-ratio: 16 / 5; }
 
   /* Event row — stack time above title */
   .event-row { flex-wrap: wrap; gap: 4px; }
@@ -1715,6 +1715,297 @@ html, body, #root {
   /* Timeline — tighter */
   .timeline-item { gap: 10px; }
   .timeline-icon { width: 26px; height: 26px; }
+}
+
+/* ── Very small: 375px ── */
+@media (max-width: 375px) {
+  .page-content, .command-section, .dashboard-section, .home-hero {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .agent-panel { margin-left: 12px; margin-right: 12px; }
+  .hero-greeting { font-size: 19px; }
+}
+
+/* ── Minimum: 320px ── */
+@media (max-width: 320px) {
+  .page-content, .command-section, .dashboard-section, .home-hero {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .agent-panel { margin-left: 10px; margin-right: 10px; }
+  .hero-greeting { font-size: 18px; }
+  .command-input { font-size: 13px; }
+  .suggestion-chip { font-size: 11px; padding: 4px 8px; }
+}
+
+/* Desktop hero visible, mobile hero hidden by default */
+.mobile-hero { display: none; }
+.desktop-hero { display: flex; }
+
+/* ═══════════════════════════════════════════════════════════
+   Mobile Introduction Screen
+   ═══════════════════════════════════════════════════════════ */
+
+/*
+ * Full-screen, vertically centred first-visit screen.
+ * Shows only on mobile (≤860px). The component itself is conditionally
+ * rendered in App.tsx via JS, so no @media gate is needed here —
+ * but we keep it tidy with a max-width cap for edge cases.
+ */
+
+.mobile-intro {
+  min-height: 100dvh;
+  min-height: 100vh; /* fallback */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 40px 24px 48px;
+  background: var(--surface);
+  box-sizing: border-box;
+  overflow-x: hidden;
+  max-width: 480px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Brand row */
+.mi-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 28px;
+  align-self: flex-start;
+}
+
+.mi-brand-logo {
+  width: 32px;
+  height: 32px;
+  background: var(--brass);
+  border-radius: var(--r-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mi-brand-logo svg {
+  width: 15px;
+  height: 15px;
+  stroke: #fff;
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+.mi-brand-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+/* Portrait video frame */
+.mi-video-frame {
+  /*
+   * Portrait sizing strategy:
+   *
+   * We want the video to be as wide as possible while keeping the
+   * portrait 9:16 ratio and NOT pushing the CTA off-screen.
+   *
+   * Approach: fix the WIDTH to ~55% of viewport width (using vw).
+   * The height then follows from aspect-ratio: 9/16 naturally.
+   *
+   * 55vw on common phones:
+   *   320px → 176px wide, 313px tall  — visible, leaves room below
+   *   375px → 206px wide, 366px tall  — good balance
+   *   390px → 215px wide, 382px tall  — prominent, CTA reachable
+   *   430px → 237px wide, 421px tall  — excellent portrait presentation
+   *
+   * A min-width floors it at 160px so the frame never becomes tiny.
+   */
+  width: 55vw;
+  min-width: 160px;
+  max-width: 280px;
+  aspect-ratio: 9 / 16;
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  background: var(--charcoal-mid);
+  box-shadow: var(--shadow-lg);
+  position: relative;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.mi-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /*
+   * cover fills the frame fully so the woman occupies the whole space.
+   * The video IS 9:16 so there are no black bars — cover = contain here.
+   * If the source is exactly 9:16 both produce the same result.
+   */
+  object-fit: cover;
+  object-position: center top;
+  background: var(--charcoal);
+}
+
+/* Reduced-motion placeholder */
+.mi-video-rm-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--charcoal);
+}
+
+.mi-video-rm-placeholder svg {
+  width: 40px;
+  height: 40px;
+  stroke: var(--brass);
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  opacity: 0.6;
+}
+
+/* Controls row (Replay + Hear Arclio) */
+.mi-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+  /* Reserve the row height even when empty (during playback, before audio
+     track detected) so the tagline doesn't jump when buttons appear */
+  min-height: 44px;
+}
+
+.mi-ctrl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 18px;
+  border-radius: 24px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  /* WCAG minimum tap target */
+  min-height: 44px;
+  white-space: nowrap;
+  letter-spacing: -0.005em;
+}
+
+.mi-ctrl-btn svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+.mi-ctrl-btn:hover {
+  border-color: var(--brass-border);
+  color: var(--brass);
+  background: var(--brass-faint);
+}
+
+.mi-ctrl-btn:active {
+  transform: scale(0.97);
+}
+
+.mi-ctrl-btn:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+/* "Hear Arclio" — subtle audio affordance */
+.mi-ctrl-btn--audio { }
+
+/* Active (audio-on) state */
+.mi-ctrl-btn--on {
+  border-color: var(--brass-border);
+  color: var(--brass);
+  background: var(--brass-faint);
+}
+
+/* Tagline */
+.mi-tagline {
+  margin-top: 24px;
+  font-size: 17px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  text-align: center;
+  letter-spacing: -0.01em;
+  max-width: 280px;
+}
+
+/* Get started CTA */
+.mi-cta {
+  margin-top: 28px;
+  padding: 14px 40px;
+  border-radius: var(--r-xl);
+  background: var(--charcoal);
+  color: #fff;
+  border: none;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+  transition: background 0.15s, transform 0.1s;
+  min-height: 50px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.mi-cta:hover {
+  background: var(--charcoal-lt);
+}
+
+.mi-cta:active {
+  transform: scale(0.98);
+}
+
+.mi-cta:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+/* Tiny phone ≤375px — tighten spacing, shrink video slightly */
+@media (max-width: 375px) {
+  .mobile-intro { padding: 28px 18px 36px; }
+  /* Tighter brand margin */
+  .mi-brand { margin-bottom: 20px; }
+  /* Slightly narrower video so CTA stays comfortably on-screen */
+  .mi-video-frame { width: 50vw; }
+  .mi-controls { margin-top: 12px; }
+  .mi-tagline { font-size: 15px; margin-top: 18px; }
+  .mi-cta { font-size: 14px; padding: 12px 28px; margin-top: 20px; }
+}
+
+@media (max-width: 320px) {
+  .mobile-intro { padding: 20px 14px 28px; }
+  .mi-brand { margin-bottom: 16px; }
+  .mi-brand-name { font-size: 16px; }
+  /* Even narrower on very small screens */
+  .mi-video-frame { width: 48vw; }
+  .mi-controls { margin-top: 10px; min-height: 36px; }
+  .mi-tagline { font-size: 14px; max-width: 260px; margin-top: 14px; }
+  .mi-cta { margin-top: 16px; min-height: 44px; }
 }
 
 /* ═══════════════════════════════════════════════════════════
