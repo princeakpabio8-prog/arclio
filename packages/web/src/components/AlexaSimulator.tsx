@@ -524,10 +524,11 @@ export function AlexaSimulator() {
   const voiceProviderRef = useRef<VoiceProvider>(new BrowserVoiceProvider());
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-  const stageTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const bottomRef      = useRef<HTMLDivElement>(null);
-  const inputRef       = useRef<HTMLInputElement>(null);
+  const recognitionRef  = useRef<SpeechRecognitionInstance | null>(null);
+  const micWatchdogRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stageTimersRef  = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const bottomRef       = useRef<HTMLDivElement>(null);
+  const inputRef        = useRef<HTMLInputElement>(null);
 
   // Probe server for ElevenLabs availability on mount.
   // When ElevenLabs is configured server-side, automatically select it as the
@@ -571,10 +572,32 @@ export function AlexaSimulator() {
   useEffect(() => () => {
     stageTimersRef.current.forEach(clearTimeout);
     if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+    clearMicWatchdog();
     recognitionRef.current?.abort();
+    recognitionRef.current = null;
     voiceProviderRef.current.stopSpeaking();
     stopBrowserSpeaking();
   }, []);
+
+  function clearMicWatchdog() {
+    if (micWatchdogRef.current !== null) {
+      clearTimeout(micWatchdogRef.current);
+      micWatchdogRef.current = null;
+    }
+  }
+
+  /** Abort any existing recognition instance and clear its handlers. */
+  function abortRecognition() {
+    clearMicWatchdog();
+    const prev = recognitionRef.current;
+    if (prev) {
+      prev.onresult = null;
+      prev.onerror  = null;
+      prev.onend    = null;
+      try { prev.abort(); } catch { /* ignore */ }
+      recognitionRef.current = null;
+    }
+  }
 
   function clearStageTimers() {
     stageTimersRef.current.forEach(clearTimeout);
@@ -715,6 +738,10 @@ export function AlexaSimulator() {
     if (!SR || micState !== "idle") return;
 
     voiceProviderRef.current.stopSpeaking();
+
+    // Always discard any previous (potentially stale/hung) instance first.
+    abortRecognition();
+
     setMicState("listening");
 
     const recognition = new SR();
@@ -723,7 +750,19 @@ export function AlexaSimulator() {
     recognition.interimResults = false;
     recognition.lang = "en-US";
 
+    // onstart: recognition session opened — start the watchdog.
+    // On iOS WebKit after video playback the session can open but then
+    // silently hang without ever producing onresult/onerror/onend.
+    (recognition as SpeechRecognitionInstance & { onstart?: (() => void) | null }).onstart = () => {
+      clearMicWatchdog();
+      micWatchdogRef.current = setTimeout(() => {
+        abortRecognition();
+        setMicState("idle");
+      }, 8_000);
+    };
+
     recognition.onresult = (event) => {
+      clearMicWatchdog();
       const transcript = event.results[0]?.[0]?.transcript ?? "";
       if (transcript.trim()) {
         sendQuery(transcript);
@@ -733,10 +772,12 @@ export function AlexaSimulator() {
     };
 
     recognition.onerror = () => {
+      clearMicWatchdog();
       setMicState("idle");
     };
 
     recognition.onend = () => {
+      clearMicWatchdog();
       // Reset to idle after recognition ends (unless we already moved to processing)
       setMicState((prev) => prev === "listening" ? "idle" : prev);
     };
@@ -744,13 +785,13 @@ export function AlexaSimulator() {
     try {
       recognition.start();
     } catch {
+      abortRecognition();
       setMicState("idle");
     }
   }
 
   function stopListening() {
-    recognitionRef.current?.stop();
-    recognitionRef.current = null;
+    abortRecognition();
     if (micState === "listening") setMicState("idle");
   }
 

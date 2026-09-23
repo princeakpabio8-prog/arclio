@@ -25,6 +25,27 @@ export function MobileIntro({ onGetStarted }: Props) {
   const [ended, setEnded] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
 
+  /**
+   * Release the video element's audio/media session BEFORE handing off to
+   * the Command Center.  On iOS 26 / WebKit, a paused-but-not-released
+   * HTMLVideoElement keeps the audio session active, which causes a
+   * subsequently created SpeechRecognition instance to silently hang
+   * (onstart fires, but onresult/onerror/onend never fire).
+   *
+   * Calling pause() + src="" + load() inside the user gesture synchronously
+   * releases the audio session so SpeechRecognition can use it immediately.
+   */
+  function handleGetStarted() {
+    const v = videoRef.current;
+    if (v) {
+      v.pause();
+      v.src = "";
+      // load() with empty src releases the media resource and audio session
+      v.load();
+    }
+    onGetStarted();
+  }
+
   const prefersReducedMotion =
     typeof window !== "undefined" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -193,7 +214,7 @@ export function MobileIntro({ onGetStarted }: Props) {
           {/* CTA — on desktop this is in the left column */}
           <button
             className="ai-cta ai-cta--desktop"
-            onClick={onGetStarted}
+            onClick={handleGetStarted}
             type="button"
           >
             Get Started
@@ -215,7 +236,7 @@ export function MobileIntro({ onGetStarted }: Props) {
             </p>
             <button
               className="ai-cta ai-cta--mobile"
-              onClick={onGetStarted}
+              onClick={handleGetStarted}
               type="button"
             >
               Get Started

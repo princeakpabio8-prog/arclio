@@ -47,6 +47,9 @@ const SUGGESTIONS_MOBILE = [
 
 type MicState = "idle" | "listening" | "processing" | "speaking";
 
+/** Milliseconds to wait after onstart before treating recognition as hung. */
+const MIC_WATCHDOG_MS = 8_000;
+
 export function AgentInput({ onResponse, onLoading, onError }: Props) {
   const [query, setQuery]         = useState("");
   const [loading, setLoading]     = useState(false);
@@ -56,6 +59,7 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
 
   const inputRef        = useRef<HTMLInputElement>(null);
   const recognitionRef  = useRef<SpeechRecognitionInstance | null>(null);
+  const micWatchdogRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceRef        = useRef<VoiceProvider>(new BrowserVoiceProvider());
 
   const speechSupported = !!getSpeechRecognition();
@@ -83,9 +87,31 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
 
   // Cleanup on unmount
   useEffect(() => () => {
+    clearMicWatchdog();
     recognitionRef.current?.abort();
+    recognitionRef.current = null;
     voiceRef.current.stopSpeaking();
   }, []);
+
+  function clearMicWatchdog() {
+    if (micWatchdogRef.current !== null) {
+      clearTimeout(micWatchdogRef.current);
+      micWatchdogRef.current = null;
+    }
+  }
+
+  /** Abort any existing recognition instance and clear its handlers. */
+  function abortRecognition() {
+    clearMicWatchdog();
+    const prev = recognitionRef.current;
+    if (prev) {
+      prev.onresult = null;
+      prev.onerror  = null;
+      prev.onend    = null;
+      try { prev.abort(); } catch { /* ignore */ }
+      recognitionRef.current = null;
+    }
+  }
 
   async function submit(q: string) {
     const trimmed = q.trim();
@@ -137,6 +163,9 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
     // iOS audio unlock before async gesture chain
     voiceRef.current.primeForPlayback?.();
 
+    // Always discard any previous (potentially stale/hung) instance first.
+    abortRecognition();
+
     setMicState("listening");
 
     const recognition = new SR();
@@ -145,7 +174,22 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
     recognition.interimResults = false;
     recognition.lang           = "en-US";
 
+    // onstart: recognition session opened — start the watchdog.
+    // On iOS WebKit after video playback the session can open but then
+    // silently hang without ever producing onresult/onerror/onend.
+    // The watchdog detects this and resets to idle with a user message.
+    (recognition as SpeechRecognitionInstance & { onstart?: (() => void) | null }).onstart = () => {
+      clearMicWatchdog();
+      micWatchdogRef.current = setTimeout(() => {
+        // Recognition started but nothing came back — treat as failure.
+        abortRecognition();
+        setMicState("idle");
+        setError("Voice input isn't available right now. Try again.");
+      }, MIC_WATCHDOG_MS);
+    };
+
     recognition.onresult = (event) => {
+      clearMicWatchdog();
       const transcript = event.results[0]?.[0]?.transcript ?? "";
       if (transcript.trim()) {
         setQuery(transcript);
@@ -155,19 +199,33 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
       }
     };
 
-    recognition.onerror = () => { setMicState("idle"); };
+    recognition.onerror = (event) => {
+      clearMicWatchdog();
+      // Surface actionable messages for permission-denied or no-speech.
+      const code = (event as { error?: string }).error ?? "";
+      if (code === "not-allowed" || code === "service-not-allowed") {
+        setError("Microphone access was denied. Please allow it in Settings.");
+      } else if (code !== "no-speech" && code !== "aborted") {
+        setError("Voice input isn't available right now. Try again.");
+      }
+      setMicState("idle");
+    };
 
     recognition.onend = () => {
+      clearMicWatchdog();
       setMicState((prev) => (prev === "listening" ? "idle" : prev));
     };
 
     try { recognition.start(); }
-    catch { setMicState("idle"); }
+    catch {
+      abortRecognition();
+      setMicState("idle");
+      setError("Voice input isn't available right now. Try again.");
+    }
   }
 
   function stopListening() {
-    recognitionRef.current?.stop();
-    recognitionRef.current = null;
+    abortRecognition();
     if (micState === "listening") setMicState("idle");
   }
 
