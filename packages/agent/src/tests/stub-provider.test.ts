@@ -81,6 +81,49 @@ test("security_only — only calls get_security_events", async () => {
   assert.deepEqual(toolNames(plan), ["get_security_events"]);
 });
 
+// ---------------------------------------------------------------------------
+// needs_attention — exact suggested prompt + natural speech variations
+// ---------------------------------------------------------------------------
+
+test("needs_attention — exact suggested prompt", async () => {
+  const plan = await stub.buildPlan("What needs my attention?");
+  assert.equal(plan.intent, "needs_attention");
+});
+
+test("needs_attention — with trailing 'today' (reported voice failure)", async () => {
+  const plan = await stub.buildPlan("What needs my attention today?");
+  assert.equal(plan.intent, "needs_attention");
+});
+
+test("needs_attention — 'pay attention to today' variation", async () => {
+  const plan = await stub.buildPlan("What do I need to pay attention to today?");
+  assert.equal(plan.intent, "needs_attention");
+});
+
+test("needs_attention — 'deal with today' variation", async () => {
+  const plan = await stub.buildPlan("Is there anything I need to deal with today?");
+  assert.equal(plan.intent, "needs_attention");
+});
+
+test("needs_attention — calls the three urgency tools", async () => {
+  const plan = await stub.buildPlan("What needs my attention today?");
+  const tools = toolNames(plan);
+  assert.ok(tools.includes("get_pending_deliveries"), "missing get_pending_deliveries");
+  assert.ok(tools.includes("get_today_calendar"), "missing get_today_calendar");
+  assert.ok(tools.includes("get_security_events"), "missing get_security_events");
+});
+
+// Regression: office_briefing must not capture "attention" via the word "on"
+test("office_briefing — 'What is on today' still routes correctly", async () => {
+  const plan = await stub.buildPlan("What is on today?");
+  assert.equal(plan.intent, "office_briefing");
+});
+
+test("office_briefing — NOT triggered by attention query containing 'on'", async () => {
+  const plan = await stub.buildPlan("What do I need to pay attention to today?");
+  assert.notEqual(plan.intent, "office_briefing");
+});
+
 test("unknown intent — returns empty steps", async () => {
   const plan = await stub.buildPlan("Order me a pizza");
   assert.equal(plan.intent, "unknown");
