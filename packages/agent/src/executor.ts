@@ -1,8 +1,15 @@
 /**
  * MCP tool executor
  *
- * Sends each planned tool call to the Arclio MCP server over Streamable HTTP
- * and collects the results. Handles session lifecycle automatically.
+ * Two execution paths — selected by MCP_BASE_URL env var:
+ *
+ *   HTTP (local dev)   MCP_BASE_URL=http://localhost:3001/mcp
+ *     Connects to the standalone MCP server over Streamable HTTP / JSON-RPC.
+ *
+ *   Direct (production / Vercel)   MCP_BASE_URL not set
+ *     Calls @arclio/mcp-server/direct functions in-process.
+ *     No HTTP round-trip, no localhost dependency — Vercel bundles the
+ *     workspace package at build time.
  *
  * Special runtime resolution:
  *   mark_delivery_received with deliveryId "__resolve__" will look up the
@@ -11,7 +18,7 @@
 
 import type { Plan, ToolCall, ToolResult, ToolName } from "./types.js";
 
-const MCP_BASE_URL = process.env.MCP_BASE_URL ?? "http://localhost:3001/mcp";
+const MCP_BASE_URL = process.env.MCP_BASE_URL; // undefined → use direct in-process path
 
 // ---------------------------------------------------------------------------
 // Low-level MCP JSON-RPC helpers
@@ -125,7 +132,7 @@ interface McpSession {
   nextId: () => number;
 }
 
-async function openSession(): Promise<McpSession> {
+async function openSession(url: string): Promise<McpSession> {
   let counter = 1;
   const nextId = () => counter++;
 
@@ -140,7 +147,7 @@ async function openSession(): Promise<McpSession> {
     },
   };
 
-  const { response, sessionId } = await mcpPost(MCP_BASE_URL, initRequest);
+  const { response, sessionId } = await mcpPost(url, initRequest);
 
   if (response.error) {
     throw new Error(`MCP initialize failed: ${response.error.message}`);
@@ -150,7 +157,7 @@ async function openSession(): Promise<McpSession> {
   }
 
   // Send initialized notification
-  await fetch(MCP_BASE_URL, {
+  await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -165,8 +172,8 @@ async function openSession(): Promise<McpSession> {
   return { sessionId, nextId };
 }
 
-async function closeSession(sessionId: string): Promise<void> {
-  await fetch(MCP_BASE_URL, {
+async function closeSession(url: string, sessionId: string): Promise<void> {
+  await fetch(url, {
     method: "DELETE",
     headers: { "mcp-session-id": sessionId },
   }).catch(() => {
@@ -175,15 +182,16 @@ async function closeSession(sessionId: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Execute a single tool call
+// Execute a single tool call (HTTP path)
 // ---------------------------------------------------------------------------
 
 async function executeToolCall(
+  url: string,
   session: McpSession,
   toolCall: ToolCall,
 ): Promise<ToolResult> {
   const { response } = await mcpPost(
-    MCP_BASE_URL,
+    url,
     {
       jsonrpc: "2.0",
       id: session.nextId(),
@@ -282,23 +290,93 @@ function resolveDeliveryId(
 }
 
 // ---------------------------------------------------------------------------
+// Direct in-process tool dispatch (production / Vercel — no MCP_BASE_URL)
+// ---------------------------------------------------------------------------
+
+async function executeToolCallDirect(toolCall: ToolCall): Promise<ToolResult> {
+  try {
+    const direct = await import("@arclio/mcp-server/direct");
+    const args = toolCall.args;
+    let data: unknown;
+
+    switch (toolCall.tool as ToolName) {
+      case "get_today_calendar":
+        data = direct.getTodayCalendar();
+        break;
+
+      case "get_pending_deliveries":
+        data = direct.getPendingDeliveries({
+          vendor: args["vendor"] as string | undefined,
+          includeToday: args["includeToday"] as boolean | undefined,
+        });
+        break;
+
+      case "get_security_events":
+        data = direct.getSecurityEvents({
+          type: args["type"] as Parameters<typeof direct.getSecurityEvents>[0]["type"],
+          location: args["location"] as string | undefined,
+          since: args["since"] as string | undefined,
+        });
+        break;
+
+      case "mark_delivery_received":
+        data = direct.markDeliveryReceived({
+          deliveryId: args["deliveryId"] as string,
+          receivedBy: args["receivedBy"] as string | undefined,
+          notes: args["notes"] as string | undefined,
+        });
+        break;
+
+      case "notify_procurement":
+        data = direct.notifyProcurement({
+          subject: args["subject"] as string,
+          body: args["body"] as string,
+          recipients: args["recipients"] as string[] | undefined,
+        });
+        break;
+
+      default:
+        throw new Error(`Unknown tool: ${toolCall.tool}`);
+    }
+
+    const raw = JSON.stringify(data);
+    return { tool: toolCall.tool, args: toolCall.args, raw, parsed: data, ok: true };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    return { tool: toolCall.tool, args: toolCall.args, raw: error, parsed: null, ok: false, error };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 export async function executePlan(plan: Plan): Promise<ToolResult[]> {
   if (plan.steps.length === 0) return [];
 
-  const session = await openSession();
+  // ── Direct path (production / Vercel — MCP_BASE_URL not set) ─────────────
+  if (!MCP_BASE_URL) {
+    const results: ToolResult[] = [];
+    for (const step of plan.steps) {
+      const resolvedStep = resolveDeliveryId(step, results);
+      results.push(await executeToolCallDirect(resolvedStep));
+    }
+    return results;
+  }
+
+  // ── HTTP path (local dev — MCP_BASE_URL is set) ───────────────────────────
+  const url = MCP_BASE_URL;
+  const session = await openSession(url);
   const results: ToolResult[] = [];
 
   try {
     for (const step of plan.steps) {
       const resolvedStep = resolveDeliveryId(step, results);
-      const result = await executeToolCall(session, resolvedStep);
+      const result = await executeToolCall(url, session, resolvedStep);
       results.push(result);
     }
   } finally {
-    await closeSession(session.sessionId);
+    await closeSession(url, session.sessionId);
   }
 
   return results;

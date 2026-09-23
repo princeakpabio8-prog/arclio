@@ -17,20 +17,27 @@
  * Voice endpoints (Alexa+ Simulator):
  *   GET  /api/voice/config   — returns { elevenlabsAvailable: boolean }
  *   POST /api/voice/tts      — proxies ElevenLabs TTS; falls back gracefully if unconfigured
+ *
+ * MCP strategy
+ * ────────────
+ * When MCP_BASE_URL is set (local dev: http://localhost:3001/mcp), the API
+ * reaches the standalone MCP server over HTTP using JSON-RPC.
+ *
+ * When MCP_BASE_URL is NOT set (production / Vercel), the tool logic is called
+ * directly in-process via @arclio/mcp-server/direct.  No HTTP round-trip, no
+ * localhost dependency.  Vercel bundles the workspace package at build time.
  */
 
 import express from "express";
 import cors from "cors";
 
 // ---------------------------------------------------------------------------
-// MCP URL
+// MCP call strategy — HTTP (local dev) vs direct in-process (production)
 // ---------------------------------------------------------------------------
 
-const MCP_URL = process.env.MCP_BASE_URL ?? "http://localhost:3001/mcp";
+const MCP_URL = process.env.MCP_BASE_URL; // undefined → use direct calls
 
-// ---------------------------------------------------------------------------
-// MCP tool query helpers
-// ---------------------------------------------------------------------------
+// --- HTTP path (local dev only) -------------------------------------------
 
 interface JsonRpcMsg {
   jsonrpc: "2.0";
@@ -71,6 +78,7 @@ async function sseFirstMessage(res: Response): Promise<JsonRpcMsg> {
 }
 
 async function mcpPost(
+  url: string,
   body: JsonRpcMsg,
   sessionId?: string,
 ): Promise<{ msg: JsonRpcMsg; sessionId: string | null }> {
@@ -80,7 +88,7 @@ async function mcpPost(
   };
   if (sessionId) headers["mcp-session-id"] = sessionId;
 
-  const res = await fetch(MCP_URL, { method: "POST", headers, body: JSON.stringify(body) });
+  const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
   const returnedSession = res.headers.get("mcp-session-id");
   const ct = res.headers.get("content-type") ?? "";
   const msg = ct.includes("text/event-stream")
@@ -89,9 +97,9 @@ async function mcpPost(
   return { msg, sessionId: returnedSession };
 }
 
-async function callMcpTool(tool: string, args: Record<string, unknown> = {}): Promise<unknown> {
+async function callMcpToolHttp(url: string, tool: string, args: Record<string, unknown> = {}): Promise<unknown> {
   let counter = 1;
-  const { msg: initMsg, sessionId } = await mcpPost({
+  const { msg: initMsg, sessionId } = await mcpPost(url, {
     jsonrpc: "2.0",
     id: counter++,
     method: "initialize",
@@ -105,7 +113,7 @@ async function callMcpTool(tool: string, args: Record<string, unknown> = {}): Pr
     throw new Error("MCP initialize failed");
   }
 
-  fetch(MCP_URL, {
+  fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -116,15 +124,66 @@ async function callMcpTool(tool: string, args: Record<string, unknown> = {}): Pr
   }).catch(() => {});
 
   const { msg: toolMsg } = await mcpPost(
+    url,
     { jsonrpc: "2.0", id: counter++, method: "tools/call", params: { name: tool, arguments: args } },
     sessionId,
   );
 
-  fetch(MCP_URL, { method: "DELETE", headers: { "mcp-session-id": sessionId } }).catch(() => {});
+  fetch(url, { method: "DELETE", headers: { "mcp-session-id": sessionId } }).catch(() => {});
 
   const result = (toolMsg as { result?: { content?: Array<{ type: string; text?: string }> } }).result;
   const text = result?.content?.find((c) => c.type === "text")?.text ?? "{}";
   return JSON.parse(text);
+}
+
+// --- Direct path (production / Vercel) ------------------------------------
+
+async function callMcpToolDirect(tool: string, args: Record<string, unknown> = {}): Promise<unknown> {
+  const direct = await import("@arclio/mcp-server/direct");
+
+  switch (tool) {
+    case "get_today_calendar":
+      return direct.getTodayCalendar();
+
+    case "get_pending_deliveries":
+      return direct.getPendingDeliveries({
+        vendor: args.vendor as string | undefined,
+        includeToday: args.includeToday as boolean | undefined,
+      });
+
+    case "get_security_events":
+      return direct.getSecurityEvents({
+        type: args.type as Parameters<typeof direct.getSecurityEvents>[0]["type"],
+        location: args.location as string | undefined,
+        since: args.since as string | undefined,
+      });
+
+    case "mark_delivery_received":
+      return direct.markDeliveryReceived({
+        deliveryId: args.deliveryId as string,
+        receivedBy: args.receivedBy as string | undefined,
+        notes: args.notes as string | undefined,
+      });
+
+    case "notify_procurement":
+      return direct.notifyProcurement({
+        subject: args.subject as string,
+        body: args.body as string,
+        recipients: args.recipients as string[] | undefined,
+      });
+
+    default:
+      throw new Error(`Unknown tool: ${tool}`);
+  }
+}
+
+// --- Unified dispatcher ---------------------------------------------------
+
+async function callMcpTool(tool: string, args: Record<string, unknown> = {}): Promise<unknown> {
+  if (MCP_URL) {
+    return callMcpToolHttp(MCP_URL, tool, args);
+  }
+  return callMcpToolDirect(tool, args);
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +207,13 @@ app.use(express.json());
 // ---------------------------------------------------------------------------
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "arclio-api", version: "0.1.0", mcpUrl: MCP_URL });
+  res.json({
+    status: "ok",
+    service: "arclio-api",
+    version: "0.1.0",
+    mcpMode: MCP_URL ? "http" : "direct",
+    mcpUrl: MCP_URL ?? "(direct in-process)",
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -190,7 +255,7 @@ app.post("/api/agent", async (req, res) => {
       res.status(503).json({
         error:
           "The MCP server is not reachable. " +
-          `Please start it with: npm run dev:server (expects ${MCP_URL})`,
+          `Please start it with: npm run dev:server (expects ${MCP_URL ?? "direct"})`,
       });
     } else {
       res.status(500).json({ error: "Agent pipeline error: " + message });
@@ -212,7 +277,7 @@ async function withMcp<T>(res: express.Response, fn: () => Promise<T>): Promise<
     console.error("[api] MCP query error:", err);
     res.status(down ? 503 : 500).json({
       error: down
-        ? `MCP server not reachable (${MCP_URL}). Start with: npm run dev:server`
+        ? `MCP server not reachable (${MCP_URL ?? "direct"}). Start with: npm run dev:server`
         : "Data fetch error: " + msg,
     });
   }
@@ -274,7 +339,7 @@ app.get("/api/deliveries", async (_req, res) => {
     };
 
     // Import DELIVERIES from the workspace package source so Vercel can bundle it.
-    const { DELIVERIES } = await import("@arclio/mcp-server/data/mock-data");
+    const { DELIVERIES } = await import("@arclio/mcp-server/direct");
     const received = DELIVERIES.filter(
       (d) => d.status === "received" || d.status === "delivered",
     );
@@ -380,7 +445,7 @@ app.get("/api/activity", async (_req, res) => {
     }
 
     // readNotifications() safely returns [] if file does not exist (serverless-safe)
-    const { readNotifications } = await import("@arclio/mcp-server/data/notification-store");
+    const { readNotifications } = await import("@arclio/mcp-server/direct");
     for (const n of readNotifications()) {
       items.push({
         id: n.id,
@@ -401,7 +466,7 @@ app.get("/api/activity", async (_req, res) => {
 
 app.get("/api/notifications", async (_req, res) => {
   try {
-    const { readNotifications } = await import("@arclio/mcp-server/data/notification-store");
+    const { readNotifications } = await import("@arclio/mcp-server/direct");
     res.json({ notifications: readNotifications() });
   } catch (err) {
     console.error("[api] notifications read error:", err);

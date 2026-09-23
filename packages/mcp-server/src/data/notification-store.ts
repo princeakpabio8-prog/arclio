@@ -1,13 +1,24 @@
 /**
- * Shared notification store — file-backed, cross-process safe.
+ * Shared notification store.
  *
- * The MCP server writes notifications here via appendNotification().
- * The API server reads them via readNotifications().
- * Both processes share the same file on disk so mutations are visible
- * across process boundaries immediately.
+ * Two storage backends, selected automatically:
  *
- * File location: <workspace-root>/.arclio-notifications.json
- * Format: JSON array of ProcurementNotification objects.
+ *   In-memory (default / production / Vercel)
+ *     A module-level array.  Works in any environment with no filesystem
+ *     dependency.  Shared within a single process — sufficient for the
+ *     direct in-process path used in production, where appendNotification
+ *     and readNotifications run in the same Node module instance.
+ *
+ *   File-backed (local dev — opt-in via ARCLIO_NOTIFY_FILE=1)
+ *     Persists to <workspace-root>/.arclio-notifications.json so the
+ *     standalone MCP server process and the API server process can share
+ *     state across a process boundary.  Set MCP_BASE_URL and
+ *     ARCLIO_NOTIFY_FILE=1 in .env to activate.
+ *
+ * Consumers:
+ *   appendNotification  — called by notify_procurement (direct.ts / MCP tool)
+ *   readNotifications   — called by /api/activity and /api/notifications
+ *   clearNotifications  — used in tests / dev resets
  */
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -15,14 +26,23 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ProcurementNotification } from "./mock-data.js";
 
-// Resolve path relative to monorepo root (4 dirs up from src/data/)
-const __dir = dirname(fileURLToPath(import.meta.url));
-const STORE_PATH = join(__dir, "../../../../.arclio-notifications.json");
+// ---------------------------------------------------------------------------
+// In-memory backend (always present)
+// ---------------------------------------------------------------------------
 
-function readAll(): ProcurementNotification[] {
+const _memStore: ProcurementNotification[] = [];
+
+// ---------------------------------------------------------------------------
+// File backend (local dev cross-process sharing — opt-in via ARCLIO_NOTIFY_FILE=1)
+// ---------------------------------------------------------------------------
+
+const __dir = dirname(fileURLToPath(import.meta.url));
+const FILE_PATH = join(__dir, "../../../../.arclio-notifications.json");
+
+function fileReadAll(): ProcurementNotification[] {
   try {
-    if (!existsSync(STORE_PATH)) return [];
-    const raw = readFileSync(STORE_PATH, "utf-8").trim();
+    if (!existsSync(FILE_PATH)) return [];
+    const raw = readFileSync(FILE_PATH, "utf-8").trim();
     if (!raw) return [];
     return JSON.parse(raw) as ProcurementNotification[];
   } catch {
@@ -30,35 +50,59 @@ function readAll(): ProcurementNotification[] {
   }
 }
 
-function writeAll(items: ProcurementNotification[]): void {
+function fileWriteAll(items: ProcurementNotification[]): void {
   try {
-    writeFileSync(STORE_PATH, JSON.stringify(items, null, 2), "utf-8");
+    writeFileSync(FILE_PATH, JSON.stringify(items, null, 2), "utf-8");
   } catch (err) {
-    console.error("[notification-store] write error:", err);
+    console.error("[notification-store] file write error:", err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Backend selector
+// ---------------------------------------------------------------------------
+
+function useFile(): boolean {
+  return Boolean(process.env.ARCLIO_NOTIFY_FILE);
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Append a new notification to the store.
+ * Called by the notify_procurement tool (direct.ts and MCP server tool).
+ */
+export function appendNotification(n: ProcurementNotification): void {
+  if (useFile()) {
+    const existing = fileReadAll();
+    existing.push(n);
+    fileWriteAll(existing);
+  } else {
+    _memStore.push(n);
   }
 }
 
 /**
- * Append a new notification to the shared store.
- * Called by notify_procurement tool inside the MCP server process.
- */
-export function appendNotification(n: ProcurementNotification): void {
-  const existing = readAll();
-  existing.push(n);
-  writeAll(existing);
-}
-
-/**
- * Read all notifications from the shared store.
- * Called by the API server's /api/activity and /api/notifications endpoints.
+ * Read all notifications from the store.
+ * Called by /api/activity and /api/notifications endpoints.
  */
 export function readNotifications(): ProcurementNotification[] {
-  return readAll();
+  if (useFile()) {
+    return fileReadAll();
+  }
+  return [..._memStore];
 }
 
 /**
- * Clear all notifications (used in tests / dev resets).
+ * Clear all notifications.
+ * Used in tests and dev resets.
  */
 export function clearNotifications(): void {
-  writeAll([]);
+  if (useFile()) {
+    fileWriteAll([]);
+  } else {
+    _memStore.length = 0;
+  }
 }

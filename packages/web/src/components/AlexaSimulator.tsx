@@ -47,11 +47,11 @@ interface Message {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const SUGGESTED_PROMPTS = [
-  { id: "briefing",  label: "What's happening at the office today?",             icon: "office" },
-  { id: "delivery",  label: "Is the Acme delivery here yet?",                    icon: "package" },
-  { id: "receive",   label: "Mark the Acme delivery as received and notify procurement", icon: "check" },
-  { id: "calendar",  label: "What's on my calendar today?",                      icon: "calendar" },
-  { id: "security",  label: "Are there any security events I should know about?", icon: "shield" },
+  { id: "briefing",   label: "Give me my business briefing.",              icon: "office" },
+  { id: "attention",  label: "What needs my attention?",                   icon: "shield" },
+  { id: "waiting",    label: "Is anything waiting on me?",                 icon: "calendar" },
+  { id: "delivery",   label: "Handle the Acme delivery.",                  icon: "package" },
+  { id: "followups",  label: "What should I follow up on today?",          icon: "check" },
 ];
 
 const STAGES: Array<{ key: StageKey; label: string }> = [
@@ -111,6 +111,12 @@ function toVoiceText(answer: string): string {
   // ── Step 4: classify and transform each line ────────────────────────────
   // Returns the spoken replacement, or null to drop the line entirely.
   function transformLine(line: string): string | null {
+    // Drop "Say '...'" prompt lines — they're UI hints, not for speaking
+    if (/^Say "/.test(line)) return null;
+
+    // Drop numbered-list prompts with quoted suggestions
+    if (/^\d+\.\s*Say "/.test(line)) return null;
+
     // Section headers produced by the synthesizer — replace with natural transitions
     if (/^Office Briefing\s*$/i.test(line))
       return "Here's your office briefing for today.";
@@ -125,8 +131,26 @@ function toVoiceText(answer: string): string {
     if (/^Security log shows:?\s*$/i.test(line))
       return "The security log shows:";
 
+    // New intent headers — natural spoken lead-ins
+    if (/^Here'?s what needs your attention:?$/i.test(line))
+      return "Here's what needs your attention:";
+    if (/^You have \d+ items? waiting on you:?$/i.test(line))
+      return line.replace(/:$/, ".");
+    if (/^You have \d+ follow-?ups? for today:?$/i.test(line))
+      return line.replace(/:$/, ".");
+
     // Drop lines that are just metadata/labels with no content value
     if (/^\(organised by .+\)$/i.test(line)) return null;
+
+    // Numbered list items (1. ... 2. ...) — strip the number prefix
+    const numberedMatch = line.match(/^\d+\.\s+(.+)$/);
+    if (numberedMatch) {
+      // Strip any remaining markdown bold and return the content
+      return numberedMatch[1]!
+        .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .replace(/\*([^*]+)\*/g, "$1")
+        .trim();
+    }
 
     // Procurement notification — rewrite
     const notifyMatch = line.match(
@@ -135,6 +159,13 @@ function toVoiceText(answer: string): string {
     if (notifyMatch) {
       return `I've notified the procurement team — ${notifyMatch[2].replace(/"/g, "")}.`;
     }
+
+    // handle_approval confirmation lines
+    if (/^Procurement approval sent\.?$/i.test(line))
+      return "The procurement approval has been sent.";
+    if (/^The vendor will be notified/i.test(line))
+      return "The vendor will be notified to proceed.";
+    if (/^Notified:/i.test(line)) return null; // drop the email list line when speaking
 
     // Delivery received confirmation
     const receivedMatch = line.match(/^Delivery received\s*[—–-]\s*(.+?)\s*\(([^)]+)\)\s*$/i);
@@ -150,7 +181,6 @@ function toVoiceText(answer: string): string {
     if (receivedByMatch) return `Received by ${receivedByMatch[1].trim()}.`;
 
     // Calendar event line: "9:00 AM–10:00 AM  Title  (Location)"
-    // or "9:00 AM–10:00 AM  Title  (Location)" with various dash styles
     const calEventMatch = line.match(
       /^(\d{1,2}:\d{2}\s*(?:AM|PM)?)\s*[—–-]?\s*(\d{1,2}:\d{2}\s*(?:AM|PM)?)\s+(.+?)\s+\((.+)\)\s*$/i,
     );
@@ -179,15 +209,17 @@ function toVoiceText(answer: string): string {
       return `The ${vendor.trim()} delivery is expected ${window_.trim()}, currently ${normalStatus}.`;
     }
 
-    // Security event line: "• HH:MM:SS — description" or "• timestamp  [type]  description  (location)"
+    // Security event line: "HH:MM:SS — description"
+    // Guard: do NOT match time-range lines where the content after the dash
+    // starts with another time (e.g. "9:00 AM–10:00 AM  Title").
     const secEventMatch = line.match(
       /^(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?)\s*[—–-]\s*(.+)$/i,
     );
-    if (secEventMatch) {
+    if (secEventMatch && !/^\d{1,2}:\d{2}/.test(secEventMatch[2]!.trim())) {
       return `At ${secEventMatch[1].trim()}: ${secEventMatch[2].trim()}.`;
     }
 
-    // Security event with type bracket: "• 09:15  [delivery_arrival]  description  (location)"
+    // Security event with type bracket
     const secBracketMatch = line.match(
       /^(\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:AM|PM)?)?)\s+\[([^\]]+)\]\s+(.+?)\s+Location:\s*(.+)$/i,
     );
@@ -196,11 +228,10 @@ function toVoiceText(answer: string): string {
       return `At ${time.trim()}: ${desc.trim()} at ${loc.trim()}.`;
     }
 
-    // "Location: ..." standalone line — skip (already consumed above or redundant)
+    // "Location: ..." standalone line — skip
     if (/^Location:\s*(.+)$/i.test(line)) return null;
 
     // Inline status conclusions ("Based on security events, ...")
-    // keep as natural language — just strip leading "Based on security events,"
     const basedOnMatch = line.match(/^Based on security events?,?\s*(.+)$/i);
     if (basedOnMatch) return basedOnMatch[1].trim();
 
@@ -217,9 +248,7 @@ function toVoiceText(answer: string): string {
   }
 
   // ── Step 6: group into natural spoken paragraphs ─────────────────────────
-  // Section transitions start a new sentence; data lines are joined with commas
-  // inside their section so they flow naturally when spoken.
-  const TRANSITION = /^(Here's|On your|For pending|For security|The security log|I've notified|I could not|Failed|Unable|There are no|No meetings|No deliveries|No notable|No security|The .+ delivery)/i;
+  const TRANSITION = /^(Here's|On your|For pending|For security|The security log|I've notified|I could not|Failed|Unable|There are no|No meetings|No deliveries|No notable|No security|The .+ delivery|You have \d+|Everything looks|The procurement)/i;
 
   const sentences: string[] = [];
   let buffer: string[] = [];
@@ -260,50 +289,73 @@ function toVoiceText(answer: string): string {
 function buildToolCards(response: AgentResponse, query: string): ToolCard[] {
   const cards: ToolCard[] = [];
   const q = query.toLowerCase();
+  const intent = response.intent;
+
+  // Deduplicate — show each domain card at most once per response
+  const seen = new Set<string>();
 
   for (const step of response.steps) {
     if (!step.ok) continue;
 
-    if (step.tool === "get_pending_deliveries" || step.tool === "mark_delivery_received") {
+    if (
+      (step.tool === "get_pending_deliveries" || step.tool === "mark_delivery_received") &&
+      !seen.has("procurement")
+    ) {
+      seen.add("procurement");
+      const isMarkReceived = step.tool === "mark_delivery_received" ||
+        intent === "mark_received" || intent === "handle_approval";
+      const isBriefing = intent === "business_briefing" || intent === "needs_attention" ||
+        intent === "follow_ups";
       cards.push({
         domain: "procurement",
         title: "Procurement",
-        lines: [
-          step.tool === "mark_delivery_received" ? "Acme Office Supplies" : "Acme delivery",
-          step.tool === "mark_delivery_received" ? "Status: Received ✓" : "Expected today",
-          step.tool === "mark_delivery_received" ? "Marked received" : "Status: In transit",
-        ],
+        lines: isMarkReceived
+          ? ["Acme Office Supplies", "Status: Received ✓", "Marked received"]
+          : isBriefing
+          ? ["Deliveries checked", "1 in transit", "Approval pending"]
+          : ["Acme delivery", "Expected today", "Status: In transit"],
       });
     }
 
-    if (step.tool === "notify_procurement") {
+    if (step.tool === "notify_procurement" && !seen.has("notification")) {
+      seen.add("notification");
+      const isApproval = intent === "handle_approval";
       cards.push({
         domain: "notification",
         title: "Notification",
-        lines: ["Procurement team", "Notified via Arclio", "Delivery confirmation sent"],
+        lines: isApproval
+          ? ["Procurement team", "Finance team", "Approval confirmed ✓"]
+          : ["Procurement team", "Notified via Arclio", "Delivery confirmation sent"],
       });
     }
 
-    if (step.tool === "get_security_events") {
+    if (step.tool === "get_security_events" && !seen.has("security")) {
+      seen.add("security");
       const isDelivery = q.includes("delivery") || q.includes("acme");
+      const isBriefing = intent === "business_briefing" || intent === "needs_attention";
       cards.push({
         domain: "security",
         title: "Security",
         lines: isDelivery
           ? ["Front entrance", "Delivery detected", new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })]
+          : isBriefing
+          ? ["Security log", "No active alerts", "All clear"]
           : ["Security log", "Events reviewed", "No active alerts"],
       });
     }
 
-    if (step.tool === "get_today_calendar") {
+    if (step.tool === "get_today_calendar" && !seen.has("calendar")) {
+      seen.add("calendar");
+      const isBriefing = intent === "business_briefing" || intent === "needs_attention" ||
+        intent === "follow_ups" || intent === "waiting_on_me";
       cards.push({
         domain: "calendar",
         title: "Calendar",
-        lines: [
-          q.includes("calendar") ? "Today's schedule" : "Procurement review",
-          q.includes("calendar") ? "Events retrieved" : "2:00 PM",
-          "Up to date",
-        ],
+        lines: isBriefing
+          ? ["4 meetings today", "Next: 9:00 AM", "Q3 Procurement Review"]
+          : q.includes("calendar")
+          ? ["Today's schedule", "Events retrieved", "Up to date"]
+          : ["Procurement review", "9:00 AM", "Up to date"],
       });
     }
   }

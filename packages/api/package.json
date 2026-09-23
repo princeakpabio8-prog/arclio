@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@arclio/agent": "*",
+    "@arclio/mcp-server": "*",
     "cors": "^2.8.5",
     "dotenv": "^18.0.3",
     "express": "^4.19.2",

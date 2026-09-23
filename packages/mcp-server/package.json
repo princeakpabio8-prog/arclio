@@ -7,8 +7,18 @@
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js",
-    "./data/mock-data": "./dist/data/mock-data.js",
-    "./data/notification-store": "./dist/data/notification-store.js"
+    "./direct": {
+      "types": "./dist/direct.d.ts",
+      "default": "./dist/direct.js"
+    },
+    "./data/mock-data": {
+      "types": "./dist/data/mock-data.d.ts",
+      "default": "./dist/data/mock-data.js"
+    },
+    "./data/notification-store": {
+      "types": "./dist/data/notification-store.d.ts",
+      "default": "./dist/data/notification-store.js"
+    }
   },
   "scripts": {
     "build": "tsc --project tsconfig.json",

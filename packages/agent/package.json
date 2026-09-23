@@ -16,6 +16,7 @@
     "test": "npm run build && npm run test:unit"
   },
   "dependencies": {
+    "@arclio/mcp-server": "*",
     "@aws-sdk/client-bedrock-runtime": "^3.1136.0",
     "zod": "^3.23.8"
   },
