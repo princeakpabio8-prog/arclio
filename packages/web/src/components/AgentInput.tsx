@@ -36,13 +36,16 @@ function getSpeechRecognition(): (new () => SpeechRecognitionInstance) | null {
 }
 
 /**
- * Short chip labels for mobile (narrow screens).
- * Desktop sees the full descriptions below.
+ * Suggestion chips shown below the input on first load.
+ * All five primary intents are represented so new users immediately
+ * understand what they can ask — on every screen size.
  */
-const SUGGESTIONS_MOBILE = [
-  { label: "Today's schedule",  fullLabel: "What's happening at the office today?" },
-  { label: "Acme delivery",     fullLabel: "Is the Acme delivery here yet?" },
-  { label: "Mark received",     fullLabel: "Mark the Acme delivery as received and notify procurement" },
+const SUGGESTIONS = [
+  "Give me my business briefing.",
+  "What needs my attention?",
+  "Is anything waiting on me?",
+  "What should I follow up on today?",
+  "Handle the Acme delivery.",
 ];
 
 type MicState = "idle" | "listening" | "processing" | "speaking";
@@ -55,23 +58,12 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [micState, setMicState]   = useState<MicState>("idle");
-  const [isMobile, setIsMobile]   = useState(false);
-
   const inputRef        = useRef<HTMLInputElement>(null);
   const recognitionRef  = useRef<SpeechRecognitionInstance | null>(null);
   const micWatchdogRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceRef        = useRef<VoiceProvider>(new BrowserVoiceProvider());
 
   const speechSupported = !!getSpeechRecognition();
-
-  // Detect mobile viewport for chip labels
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 860px)");
-    setIsMobile(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
 
   // Bootstrap voice provider — probe ElevenLabs availability
   useEffect(() => {
@@ -319,20 +311,19 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
 
       {/* Suggestions */}
       <div className="command-suggestions">
-        {SUGGESTIONS_MOBILE.map(({ label, fullLabel }) => {
-          const chipLabel = isMobile ? label : fullLabel;
-          return (
+        <span className="command-suggestions-label">Try asking:</span>
+        <div className="command-suggestions-chips">
+          {SUGGESTIONS.map((text) => (
             <button
-              key={fullLabel}
+              key={text}
               className="suggestion-chip"
-              onClick={() => submit(fullLabel)}
+              onClick={() => submit(text)}
               disabled={isBusy}
-              title={isMobile ? fullLabel : undefined}
             >
-              {chipLabel}
+              {text}
             </button>
-          );
-        })}
+          ))}
+        </div>
       </div>
 
       {error && (

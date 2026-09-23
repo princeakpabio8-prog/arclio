@@ -602,6 +602,21 @@ html, body, #root {
 /* Suggested actions */
 .command-suggestions {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.command-suggestions-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0 2px;
+}
+
+.command-suggestions-chips {
+  display: flex;
   flex-wrap: wrap;
   gap: 7px;
 }
@@ -609,7 +624,6 @@ html, body, #root {
 .suggestion-chip {
   display: flex;
   align-items: center;
-  gap: 6px;
   padding: 7px 14px;
   border-radius: 20px;
   border: 1px solid var(--border);
@@ -619,7 +633,9 @@ html, body, #root {
   font-family: inherit;
   cursor: pointer;
   transition: border-color 0.12s, color 0.12s, background 0.12s;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: left;
+  line-height: 1.4;
   font-weight: 400;
   min-height: 36px;
 }
@@ -1950,9 +1966,6 @@ html, body, #root {
   .home-hero, .command-section, .dashboard-section, .agent-panel,
   .agent-panel-empty { max-width: 100%; box-sizing: border-box; }
 
-  /* Chips on mobile — short labels are used by JS, allow normal whitespace */
-  .suggestion-chip { white-space: nowrap; }
-
   /* Command wrap — keep inside viewport */
   .command-wrap { min-width: 0; width: 100%; }
 
@@ -1999,7 +2012,7 @@ html, body, #root {
   .command-input   { font-size: 14px; }
 
   /* Suggestion chips */
-  .command-suggestions { gap: 6px; }
+  .command-suggestions-chips { gap: 6px; }
   .suggestion-chip { font-size: 12px; min-height: 36px; }
 }
 
