@@ -59,7 +59,7 @@ export function SecurityCard() {
       ) : (
         <div className="security-list">
           {events.length === 0 && (
-            <div className="empty-state">No security events today.</div>
+            <div className="empty-state">No security events today. Everything looks clear.</div>
           )}
           {events.map((e) => {
             const isAlert = ALERT_TYPES.has(e.type);
@@ -78,6 +78,8 @@ export function SecurityCard() {
           })}
         </div>
       )}
+
+      <div className="card-demo-label">Demo workspace</div>
     </div>
   );
 }

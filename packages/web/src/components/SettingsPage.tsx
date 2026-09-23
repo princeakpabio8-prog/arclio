@@ -129,7 +129,7 @@ export function SettingsPage() {
           <SettingsRow label="MCP URL" value={<span className="code-pill">{health?.mcpUrl ?? "http://localhost:3001/mcp"}</span>} />
           <SettingsRow label="API Port" value={<span className="code-pill">3002</span>} />
           <SettingsRow label="Web Dev Port" value={<span className="code-pill">5173</span>} />
-          <SettingsRow label="Bedrock Model" value={<span className="code-pill">global.anthropic.claude-sonnet-4-6</span>} />
+          <SettingsRow label="Bedrock Model" value={<span className="code-pill">us.anthropic.claude-sonnet-4-5</span>} />
           <SettingsRow label="Bedrock Region" value={
             <span><span className="code-pill">us-east-1</span><span style={{ marginLeft: 8, color: "var(--text-muted)", fontSize: 12.5 }}>override via ARCLIO_BEDROCK_REGION</span></span>
           } />

@@ -97,8 +97,8 @@ export function ActivityFeed({ latestResponse, refreshKey }: Props) {
             </svg>
           </div>
           <div>
-            <div className="card-title">Arclio Activity</div>
-            <div className="card-subtitle">Live operational timeline</div>
+            <div className="card-title">Activity Timeline</div>
+              <div className="card-subtitle">Live operational events</div>
           </div>
         </div>
         {!loading && (
@@ -114,7 +114,7 @@ export function ActivityFeed({ latestResponse, refreshKey }: Props) {
         </div>
       ) : displayItems.length === 0 ? (
         <div className="empty-state">
-          No activity yet. Try asking Arclio something — results appear here in real time.
+          No activity recorded yet. Ask Arclio something and events will appear here.
         </div>
       ) : (
         <div className="timeline">
@@ -141,6 +141,8 @@ export function ActivityFeed({ latestResponse, refreshKey }: Props) {
           })}
         </div>
       )}
+
+      <div className="card-demo-label">Demo workspace</div>
     </div>
   );
 }

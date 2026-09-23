@@ -53,7 +53,7 @@ export function CalendarCard() {
       ) : !data ? (
         <Shimmer />
       ) : data.events.length === 0 ? (
-        <div className="empty-state">No meetings scheduled today.</div>
+        <div className="empty-state">No meetings scheduled for today.</div>
       ) : (
         <div className="event-list">
           {data.events.map((e) => (
@@ -68,6 +68,8 @@ export function CalendarCard() {
           ))}
         </div>
       )}
+
+      <div className="card-demo-label">Demo workspace</div>
     </div>
   );
 }

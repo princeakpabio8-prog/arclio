@@ -873,6 +873,25 @@ html, body, #root {
    Cards
 ───────────────────────────────────────────── */
 
+/* Subtle "Demo workspace" label — bottom of each card */
+.card-demo-label {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-faint);
+}
+
+/* Reports two-column grid — stacks on mobile */
+.reports-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1700,6 +1719,7 @@ html, body, #root {
   }
   .agent-panel { margin-left: 16px; margin-right: 16px; }
   .agent-panel-empty { margin-left: 16px; margin-right: 16px; }
+  .reports-two-col { grid-template-columns: 1fr; }
   .page-content { gap: 20px; padding-bottom: 40px; }
 
   .hero-greeting { font-size: 22px; }

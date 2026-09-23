@@ -106,8 +106,8 @@ export function ReportsPage() {
         ))}
       </div>
 
-      {/* Two-column content */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+      {/* Two-column content — stacks to single column on mobile */}
+      <div className="reports-two-col">
         {/* Recent agent activity */}
         <div className="card">
           <div className="card-header">
