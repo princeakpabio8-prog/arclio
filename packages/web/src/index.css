@@ -388,15 +388,15 @@ html, body, #root {
 .hero-video-wrap {
   flex: 0 0 auto;
   position: relative;
-  width: 280px;
   border-radius: var(--r-lg);
   overflow: hidden;
   background: var(--ivory-mid);
   box-shadow: var(--shadow-md);
-  /* Reserve the 9:16 aspect ratio so layout doesn't jump while video loads */
+  /* Portrait 9:16 video — height drives size, width follows aspect-ratio */
   aspect-ratio: 9 / 16;
   max-height: 220px;
-  width: auto; /* override fixed width — let aspect-ratio + max-height drive size */
+  /* Prevent the container from ever exceeding its natural width */
+  max-width: 100%;
 }
 
 .hero-video {
