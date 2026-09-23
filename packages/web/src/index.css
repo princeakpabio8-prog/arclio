@@ -834,6 +834,257 @@ html, body, #root {
 }
 
 /* ─────────────────────────────────────────────
+   Structured Response Panel (rsp-*)
+───────────────────────────────────────────── */
+
+/* Outer content wrapper — separates the block from the "You asked" pill */
+.rsp-content {
+  margin-top: 14px;
+}
+
+/* ── Prose ──────────────────────────────────────────────────────────────── */
+
+.rsp-prose {
+  font-size: 13.5px;
+  color: var(--text-primary);
+  line-height: 1.75;
+  margin: 0;
+}
+
+/* ── Numbered list (needs_attention, waiting_on_me, follow_ups) ─────────── */
+
+.rsp-numlist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rsp-numlist-heading {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 2px;
+}
+
+.rsp-numlist-ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rsp-numlist-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.rsp-numlist-counter {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--brass-faint);
+  border: 1px solid var(--brass-border);
+  color: var(--brass);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  margin-top: 1px;
+}
+
+.rsp-numlist-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.rsp-numlist-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rsp-numlist-footer {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-light);
+  margin-top: 4px;
+}
+
+/* ── Sections (office_briefing, calendar_only, security_only, delivery_status) */
+
+.rsp-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rsp-section {
+  border: 1px solid var(--border-light);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.rsp-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.rsp-section-icon {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rsp-section-icon--calendar    { background: var(--brass-faint); }
+.rsp-section-icon--delivery    { background: var(--blue-bg); }
+.rsp-section-icon--security    { background: var(--amber-bg); }
+.rsp-section-icon--notification { background: var(--green-bg); }
+.rsp-section-icon--default     { background: var(--border-light); }
+
+.rsp-section-svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rsp-section-icon--calendar    .rsp-section-svg { stroke: var(--brass); }
+.rsp-section-icon--delivery    .rsp-section-svg { stroke: var(--blue); }
+.rsp-section-icon--security    .rsp-section-svg { stroke: var(--amber); }
+.rsp-section-icon--notification .rsp-section-svg { stroke: var(--green); }
+.rsp-section-icon--default     .rsp-section-svg { stroke: var(--text-muted); }
+
+.rsp-section-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex: 1;
+  min-width: 0;
+}
+
+.rsp-section-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rsp-section-row {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 8px 13px;
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.55;
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.rsp-section-row:last-child { border-bottom: none; }
+
+.rsp-row-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-top: 4px;
+}
+
+.rsp-row-dot--default { background: var(--border); }
+.rsp-row-dot--alert   { background: var(--red); }
+.rsp-row-dot--warn    { background: var(--amber); }
+.rsp-row-dot--info    { background: var(--blue); }
+.rsp-row-dot--success { background: var(--green); }
+
+.rsp-section-row-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.rsp-section-footer {
+  padding: 8px 13px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+  border-top: 1px solid var(--border-light);
+  font-style: italic;
+}
+
+/* ── Receipt (mark_received, handle_approval) ─────────────────────────────── */
+
+.rsp-receipt {
+  border: 1px solid var(--green-border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--green-bg);
+}
+
+.rsp-receipt-headline {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--green);
+}
+
+.rsp-receipt-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rsp-receipt-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--green-border);
+  background: var(--surface);
+}
+
+.rsp-receipt-line {
+  padding: 7px 14px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.rsp-receipt-line:last-child { border-bottom: none; }
+
+.rsp-receipt-line--default { color: var(--text-primary); }
+.rsp-receipt-line--muted   { color: var(--text-secondary); }
+.rsp-receipt-line--notify  { color: var(--green); font-weight: 500; }
+.rsp-receipt-line--warn    { color: var(--amber); }
+
+/* ─────────────────────────────────────────────
    Dashboard grid
 ───────────────────────────────────────────── */
 
