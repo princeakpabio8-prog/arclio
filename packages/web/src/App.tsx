@@ -191,7 +191,8 @@ export default function App() {
                       weekday: "long", year: "numeric", month: "long", day: "numeric",
                     })}
                   </div>
-                  <div className="hero-sub">
+                  {/* hero-sub hidden on mobile via CSS — already communicated by intro */}
+                  <div className="hero-sub hero-sub--desktop">
                     <strong>Ask Arclio.</strong> Approve. Done.
                   </div>
                 </div>

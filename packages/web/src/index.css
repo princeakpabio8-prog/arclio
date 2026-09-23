@@ -100,17 +100,26 @@ html, body, #root {
   height: 100vh;
   overflow: hidden;
   position: relative; /* needed for mobile overlay stacking */
+  /* Prevent any child from causing horizontal viewport overflow */
+  max-width: 100vw;
+  width: 100%;
 }
 
 .main-content {
   flex: 1;
+  /* min-width:0 is critical — without it, a flex child can grow to fit its
+     content rather than the available space, causing horizontal overflow */
+  min-width: 0;
+  width: 0; /* forces flex to respect flex:1 without content-based growth */
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 0;
   display: flex;
   flex-direction: column;
   background: var(--ivory);
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
+  box-sizing: border-box;
 }
 
 .main-content::-webkit-scrollbar { width: 6px; }
@@ -347,9 +356,13 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 32px;
+  /* Prevent content from overflowing the viewport horizontally */
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
-/* Text content — left side */
+/* Text content */
 .home-hero-content {
   flex: 1 1 auto;
   min-width: 0;
@@ -361,6 +374,9 @@ html, body, #root {
   letter-spacing: -0.025em;
   color: var(--text-primary);
   line-height: 1.2;
+  /* Allow text to wrap rather than overflow */
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .hero-date {
@@ -383,100 +399,6 @@ html, body, #root {
   font-weight: 500;
 }
 
-/* ── Video hero ── */
-
-.hero-video-wrap {
-  flex: 0 0 auto;
-  position: relative;
-  border-radius: var(--r-lg);
-  overflow: hidden;
-  background: var(--ivory-mid);
-  box-shadow: var(--shadow-md);
-  /* Portrait 9:16 video — height drives size, width follows aspect-ratio */
-  aspect-ratio: 9 / 16;
-  max-height: 220px;
-  /* Prevent the container from ever exceeding its natural width */
-  max-width: 100%;
-}
-
-.hero-video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center top;
-  border-radius: inherit;
-}
-
-.hero-video-poster-fallback {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center top;
-  border-radius: inherit;
-}
-
-/* "Hear Arclio" audio control */
-.hero-audio-btn {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 10px 5px 8px;
-  background: rgba(24, 24, 27, 0.72);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 20px;
-  color: #fff;
-  font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  cursor: pointer;
-  transition: background 0.2s, transform 0.15s;
-  white-space: nowrap;
-  /* Ensure tap target is at least 44px on mobile */
-  min-height: 32px;
-}
-
-.hero-audio-btn svg {
-  width: 13px;
-  height: 13px;
-  stroke: #fff;
-  fill: none;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  flex-shrink: 0;
-}
-
-.hero-audio-btn:hover {
-  background: rgba(24, 24, 27, 0.88);
-  transform: scale(1.03);
-}
-
-.hero-audio-btn:active {
-  transform: scale(0.97);
-}
-
-.hero-audio-btn:focus-visible {
-  outline: 2px solid var(--brass);
-  outline-offset: 2px;
-}
-
-/* Active (audio-on) state — subtle brass tint to signal "on" */
-.hero-audio-btn--on {
-  background: rgba(154, 119, 64, 0.82);
-  border-color: rgba(184, 145, 78, 0.4);
-}
-
-.hero-audio-btn--on:hover {
-  background: rgba(154, 119, 64, 0.95);
-}
-
 /* ─────────────────────────────────────────────
    Command input
 ───────────────────────────────────────────── */
@@ -486,18 +408,26 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* Prevent overflow */
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .command-wrap {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   background: var(--surface);
   border: 1.5px solid var(--border);
   border-radius: var(--r-xl);
-  padding: 13px 14px 13px 22px;
+  padding: 6px 8px 6px 18px;
   box-shadow: var(--shadow-sm);
   transition: border-color 0.15s, box-shadow 0.15s;
+  /* Prevent overflow */
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .command-wrap:focus-within {
@@ -524,6 +454,7 @@ html, body, #root {
 
 .command-input {
   flex: 1;
+  min-width: 0;
   border: none;
   outline: none;
   background: transparent;
@@ -532,6 +463,8 @@ html, body, #root {
   font-family: inherit;
   line-height: 1.5;
   font-weight: 400;
+  /* Prevent input from causing horizontal overflow */
+  width: 0;
 }
 
 .command-input::placeholder {
@@ -539,9 +472,70 @@ html, body, #root {
   font-weight: 400;
 }
 
+/* ── Microphone button ── */
+.command-mic {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1.5px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  color: var(--text-secondary);
+}
+
+.command-mic svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.command-mic:hover:not(:disabled) {
+  border-color: var(--brass-border);
+  background: var(--brass-faint);
+  color: var(--brass);
+}
+
+.command-mic:active:not(:disabled) { transform: scale(0.93); }
+
+.command-mic:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.command-mic:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+/* Listening state — active red */
+.command-mic--listening {
+  background: var(--red-bg);
+  border-color: var(--red-border);
+  color: var(--red);
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+
+.command-mic--listening:hover:not(:disabled) {
+  background: var(--red-bg);
+  border-color: var(--red);
+  color: var(--red);
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+  50%       { box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.18); }
+}
+
+/* ── Send button — 44×44px minimum tap target ── */
 .command-send {
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: var(--brass);
   border: none;
@@ -558,14 +552,51 @@ html, body, #root {
 .command-send:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .command-send svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   stroke: #fff;
   fill: none;
-  stroke-width: 2.5;
+  stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
-  margin-left: 1px;
+}
+
+/* ── Listening status row ── */
+.command-listening {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--red);
+  letter-spacing: 0.01em;
+  padding: 0 4px;
+}
+
+.command-listening-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--red);
+  animation: listening-bounce 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.command-listening-dot:nth-child(2) { animation-delay: 0.18s; }
+.command-listening-dot:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes listening-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
+  40%           { transform: translateY(-3px); opacity: 1; }
+}
+
+/* ── Empty state hint ── */
+.agent-panel-empty {
+  margin: 12px 48px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 0 4px;
 }
 
 /* Suggested actions */
@@ -579,7 +610,7 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 13px;
+  padding: 7px 14px;
   border-radius: 20px;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -590,6 +621,7 @@ html, body, #root {
   transition: border-color 0.12s, color 0.12s, background 0.12s;
   white-space: nowrap;
   font-weight: 400;
+  min-height: 36px;
 }
 
 .suggestion-chip:hover:not(:disabled) {
@@ -1595,11 +1627,10 @@ html, body, #root {
   .stat-grid      { grid-template-columns: 1fr 1fr; }
   .page-content, .command-section, .dashboard-section, .home-hero { padding-left: 32px; padding-right: 32px; }
   .agent-panel { margin-left: 32px; margin-right: 32px; }
-  /* Slightly smaller video at tablet widths */
-  .hero-video-wrap { max-height: 180px; }
+  .agent-panel-empty { margin-left: 32px; margin-right: 32px; }
 }
 
-/* ── Tablet: 860px ── */
+/* ── Tablet/Mobile: 860px ── */
 @media (max-width: 860px) {
   :root { --sidebar-w: 228px; }
 
@@ -1622,34 +1653,38 @@ html, body, #root {
   .mobile-topbar { display: flex; }
   .mobile-menu-btn { display: flex; }
 
-  /* Home hero on mobile — compact stacked layout */
-  .home-hero { padding-top: 24px; }
-
-  /* Stack layout on narrow screens */
+  /* Home hero — compact on mobile */
   .home-hero {
     flex-direction: column;
     align-items: flex-start;
-    gap: 16px;
+    gap: 4px;
+    padding-top: 16px;
+    padding-bottom: 16px;
   }
+
+  /* Hide the tagline on mobile — already communicated by intro */
+  .hero-sub--desktop { display: none; }
 
   .dashboard-grid { grid-template-columns: 1fr; }
   .stat-grid      { grid-template-columns: 1fr 1fr; }
   .page-content, .command-section, .dashboard-section, .home-hero { padding-left: 20px; padding-right: 20px; }
   .agent-panel { margin-left: 20px; margin-right: 20px; }
+  .agent-panel-empty { margin-left: 20px; margin-right: 20px; }
 
-  /* Prevent horizontal overflow globally */
-  .main-content { overflow-x: hidden; min-width: 0; }
+  /* Prevent horizontal overflow — belt-and-suspenders */
   html, body, #root { overflow-x: hidden; max-width: 100vw; }
-  .app-shell { max-width: 100vw; }
+  .app-shell { max-width: 100vw; width: 100%; }
+  .main-content { overflow-x: hidden; }
 
-  /* Ensure all direct children of main-content don't overflow */
-  .home-hero, .command-section, .dashboard-section, .agent-panel { max-width: 100%; }
+  /* Every direct layout child must stay inside the viewport */
+  .home-hero, .command-section, .dashboard-section, .agent-panel,
+  .agent-panel-empty { max-width: 100%; box-sizing: border-box; }
 
-  /* Suggestion chips — allow wrapping and truncation on narrow screens */
-  .suggestion-chip { white-space: normal; max-width: 100%; }
+  /* Chips on mobile — short labels are used by JS, allow normal whitespace */
+  .suggestion-chip { white-space: nowrap; }
 
-  /* Command wrap — ensure it doesn't push wider than the viewport */
-  .command-wrap { min-width: 0; }
+  /* Command wrap — keep inside viewport */
+  .command-wrap { min-width: 0; width: 100%; }
 
   /* Sidebar nav items — taller tap targets on touch */
   .sidebar-nav-item { padding: 10px 10px; min-height: 44px; }
@@ -1664,6 +1699,7 @@ html, body, #root {
     padding-right: 16px;
   }
   .agent-panel { margin-left: 16px; margin-right: 16px; }
+  .agent-panel-empty { margin-left: 16px; margin-right: 16px; }
   .page-content { gap: 20px; padding-bottom: 40px; }
 
   .hero-greeting { font-size: 22px; }
@@ -1687,13 +1723,13 @@ html, body, #root {
   /* Cards — comfortable spacing */
   .card { padding: 16px 18px; }
 
-  /* Command input */
-  .command-section { padding-top: 20px; }
+  /* Command input — tighter section top on small screens */
+  .command-section { padding-top: 16px; }
   .command-input   { font-size: 14px; }
 
-  /* Suggestion chips — allow wrap (already flex-wrap) */
+  /* Suggestion chips */
   .command-suggestions { gap: 6px; }
-  .suggestion-chip { font-size: 12px; padding: 5px 10px; white-space: normal; }
+  .suggestion-chip { font-size: 12px; min-height: 36px; }
 }
 
 /* ── Small mobile: 430px ── */
@@ -1703,6 +1739,7 @@ html, body, #root {
     padding-right: 14px;
   }
   .agent-panel { margin-left: 14px; margin-right: 14px; }
+  .agent-panel-empty { margin-left: 14px; margin-right: 14px; }
 
   .hero-greeting { font-size: 20px; }
 
@@ -1729,6 +1766,7 @@ html, body, #root {
     padding-right: 12px;
   }
   .agent-panel { margin-left: 12px; margin-right: 12px; }
+  .agent-panel-empty { margin-left: 12px; margin-right: 12px; }
   .hero-greeting { font-size: 19px; }
 }
 
@@ -1739,9 +1777,12 @@ html, body, #root {
     padding-right: 10px;
   }
   .agent-panel { margin-left: 10px; margin-right: 10px; }
+  .agent-panel-empty { margin-left: 10px; margin-right: 10px; }
   .hero-greeting { font-size: 18px; }
   .command-input { font-size: 13px; }
-  .suggestion-chip { font-size: 11px; padding: 4px 8px; }
+  .suggestion-chip { font-size: 11px; }
+  /* Shrink mic/send slightly on 320 to preserve input space */
+  .command-mic, .command-send { width: 40px; height: 40px; }
 }
 
 /* Legacy hero display helpers — kept for safety, no longer used in markup */

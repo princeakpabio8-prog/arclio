@@ -52,7 +52,14 @@ export function AgentResponsePanel({ response, loading }: Props) {
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [loading]);
 
-  if (!loading && !response) return null;
+  // Subtle empty-state hint — compact, muted, not a full card
+  if (!loading && !response) {
+    return (
+      <div className="agent-panel-empty">
+        What can I help you with today?
+      </div>
+    );
+  }
 
   const stageIndex = STAGES.findIndex((s) => s.key === stage);
 
