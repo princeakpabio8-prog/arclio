@@ -344,6 +344,15 @@ html, body, #root {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   padding: 44px 48px 36px;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+/* Text content — left side */
+.home-hero-content {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .hero-greeting {
@@ -372,6 +381,100 @@ html, body, #root {
 .hero-sub strong {
   color: var(--text-primary);
   font-weight: 500;
+}
+
+/* ── Video hero ── */
+
+.hero-video-wrap {
+  flex: 0 0 auto;
+  position: relative;
+  width: 280px;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--ivory-mid);
+  box-shadow: var(--shadow-md);
+  /* Reserve the 9:16 aspect ratio so layout doesn't jump while video loads */
+  aspect-ratio: 9 / 16;
+  max-height: 220px;
+  width: auto; /* override fixed width — let aspect-ratio + max-height drive size */
+}
+
+.hero-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  border-radius: inherit;
+}
+
+.hero-video-poster-fallback {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  border-radius: inherit;
+}
+
+/* "Hear Arclio" audio control */
+.hero-audio-btn {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px 5px 8px;
+  background: rgba(24, 24, 27, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s;
+  white-space: nowrap;
+  /* Ensure tap target is at least 44px on mobile */
+  min-height: 32px;
+}
+
+.hero-audio-btn svg {
+  width: 13px;
+  height: 13px;
+  stroke: #fff;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+.hero-audio-btn:hover {
+  background: rgba(24, 24, 27, 0.88);
+  transform: scale(1.03);
+}
+
+.hero-audio-btn:active {
+  transform: scale(0.97);
+}
+
+.hero-audio-btn:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+/* Active (audio-on) state — subtle brass tint to signal "on" */
+.hero-audio-btn--on {
+  background: rgba(154, 119, 64, 0.82);
+  border-color: rgba(184, 145, 78, 0.4);
+}
+
+.hero-audio-btn--on:hover {
+  background: rgba(154, 119, 64, 0.95);
 }
 
 /* ─────────────────────────────────────────────
@@ -1492,6 +1595,8 @@ html, body, #root {
   .stat-grid      { grid-template-columns: 1fr 1fr; }
   .page-content, .command-section, .dashboard-section, .home-hero { padding-left: 32px; padding-right: 32px; }
   .agent-panel { margin-left: 32px; margin-right: 32px; }
+  /* Slightly smaller video at tablet widths */
+  .hero-video-wrap { max-height: 180px; }
 }
 
 /* ── Tablet: 860px ── */
@@ -1520,6 +1625,19 @@ html, body, #root {
   /* Remove top padding from main content — topbar provides it */
   .home-hero { padding-top: 28px; }
 
+  /* Stack video below text on narrow screens */
+  .home-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+  }
+  .hero-video-wrap {
+    /* Full-width, short banner on tablet/mobile */
+    width: 100%;
+    max-height: 160px;
+    aspect-ratio: 16 / 7;
+  }
+
   .dashboard-grid { grid-template-columns: 1fr; }
   .stat-grid      { grid-template-columns: 1fr 1fr; }
   .page-content, .command-section, .dashboard-section, .home-hero { padding-left: 20px; padding-right: 20px; }
@@ -1542,6 +1660,7 @@ html, body, #root {
   .page-content { gap: 20px; padding-bottom: 40px; }
 
   .hero-greeting { font-size: 22px; }
+  .hero-video-wrap { max-height: 140px; aspect-ratio: 16 / 6; }
   .page-title    { font-size: 18px; }
 
   /* Page header — stack on mobile */
@@ -1580,6 +1699,7 @@ html, body, #root {
   .agent-panel { margin-left: 12px; margin-right: 12px; }
 
   .hero-greeting { font-size: 20px; }
+  .hero-video-wrap { max-height: 120px; aspect-ratio: 16 / 5; }
 
   /* Event row — stack time above title */
   .event-row { flex-wrap: wrap; gap: 4px; }
