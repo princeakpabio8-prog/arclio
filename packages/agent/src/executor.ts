@@ -337,6 +337,16 @@ async function executeToolCallDirect(toolCall: ToolCall): Promise<ToolResult> {
         });
         break;
 
+      case "get_recent_emails":
+        data = direct.getRecentEmails({
+          limit: args["limit"] as number | undefined,
+        });
+        break;
+
+      case "get_important_emails":
+        data = direct.getImportantEmails();
+        break;
+
       default:
         throw new Error(`Unknown tool: ${toolCall.tool}`);
     }

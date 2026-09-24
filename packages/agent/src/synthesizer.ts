@@ -23,6 +23,7 @@ export function buildAnswer(
       '  \u2022 "What needs my attention?"\n' +
       '  \u2022 "Is anything waiting on me?"\n' +
       '  \u2022 "Handle the Acme delivery."\n' +
+      '  \u2022 "Anything important in my inbox?"\n' +
       '  \u2022 "What should I follow up on today?"'
     );
   }
@@ -52,6 +53,10 @@ export function buildAnswer(
       return buildCalendarOnly(results);
     case "security_only":
       return buildSecurityOnly(results);
+    case "inbox_important":
+      return buildInboxImportant(results);
+    case "inbox_recent":
+      return buildInboxRecent(results);
     default:
       return "Done. Here's what I found:\n\n" + formatRawResults(results);
   }
@@ -175,9 +180,23 @@ function buildNeedsAttention(results: ToolResult[]): string {
     );
   }
 
-  // Mock comms — always shown to demonstrate broader layer
-  items.push("Procurement is waiting for your approval on the TechVault laptop order");
-  items.push("Finance has requested confirmation on the Q3 budget allocation");
+  // Live email data
+  const emailResult = results.find((r) => r.tool === "get_important_emails");
+  const emails = (
+    (emailResult?.parsed as { emails?: Array<{ subject: string; from: string; isRead: boolean }> })?.emails ?? []
+  );
+  const unreadEmails = emails.filter((e) => !e.isRead);
+  if (unreadEmails.length > 0) {
+    items.push(
+      `You have ${unreadEmails.length} unread email${unreadEmails.length !== 1 ? "s" : ""} requiring attention — including "${unreadEmails[0]!.subject}"`,
+    );
+  }
+
+  // Mock comms fallback if no email data available
+  if (!emailResult?.ok) {
+    items.push("Procurement is waiting for your approval on the TechVault laptop order");
+    items.push("Finance has requested confirmation on the Q3 budget allocation");
+  }
 
   if (items.length === 0) {
     return "Everything looks clear. No urgent items across your connected systems.";
@@ -506,6 +525,79 @@ function buildSecurityOnly(results: ToolResult[]): string {
     });
   }
   return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Email intent builders
+// ---------------------------------------------------------------------------
+
+type EmailEntry = {
+  subject: string;
+  from: string;
+  receivedAt: string;
+  snippet: string;
+  isRead: boolean;
+  importance: string;
+  labels: string[];
+};
+
+function buildInboxImportant(results: ToolResult[]): string {
+  const result = results.find((r) => r.tool === "get_important_emails");
+  if (!result?.ok) return "Unable to retrieve inbox emails.";
+
+  const data = result.parsed as { count?: number; emails?: EmailEntry[] };
+  const emails = data.emails ?? [];
+
+  if (emails.length === 0) {
+    return "Your inbox is clear — no important or unread emails right now.";
+  }
+
+  const unread = emails.filter((e) => !e.isRead);
+  const high = emails.filter((e) => e.importance === "high");
+
+  const lines: string[] = [
+    `📧 **Inbox — ${emails.length} item${emails.length !== 1 ? "s" : ""} need${emails.length === 1 ? "s" : ""} your attention** (${unread.length} unread)\n`,
+  ];
+
+  emails.forEach((e) => {
+    const flag = e.importance === "high" ? "🔴" : e.isRead ? "📨" : "📩";
+    lines.push(`${flag} **${e.subject}**`);
+    lines.push(`   From: ${e.from}  ·  ${e.receivedAt}`);
+    lines.push(`   ${e.snippet.slice(0, 120)}${e.snippet.length > 120 ? "…" : ""}`);
+    lines.push("");
+  });
+
+  if (high.length > 0) {
+    lines.push(`${high.length} email${high.length !== 1 ? "s" : ""} marked high importance — consider addressing those first.`);
+  }
+
+  return lines.join("\n").trimEnd();
+}
+
+function buildInboxRecent(results: ToolResult[]): string {
+  const result = results.find((r) => r.tool === "get_recent_emails");
+  if (!result?.ok) return "Unable to retrieve recent emails.";
+
+  const data = result.parsed as { count?: number; emails?: EmailEntry[] };
+  const emails = data.emails ?? [];
+
+  if (emails.length === 0) {
+    return "No recent emails found in your inbox.";
+  }
+
+  const lines: string[] = [
+    `📧 **Recent Emails — ${emails.length} message${emails.length !== 1 ? "s" : ""}**\n`,
+  ];
+
+  emails.forEach((e) => {
+    const flag = e.isRead ? "📨" : "📩";
+    lines.push(`${flag} **${e.subject}**`);
+    lines.push(`   From: ${e.from}  ·  ${e.receivedAt}${e.isRead ? "" : "  · *unread*"}`);
+    lines.push(`   ${e.snippet.slice(0, 120)}${e.snippet.length > 120 ? "…" : ""}`);
+    lines.push("");
+  });
+
+  return lines.join("\n").trimEnd();
 }
 
 function formatRawResults(results: ToolResult[]): string {

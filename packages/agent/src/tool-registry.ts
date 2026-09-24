@@ -108,6 +108,24 @@ export const TOOL_REGISTRY: ToolDescriptor[] = [
       },
     },
   },
+  {
+    name: "get_recent_emails",
+    description:
+      "Retrieve the most recent emails from the inbox. Returns subject, sender, time, snippet, read status, and importance.",
+    args: {
+      limit: {
+        type: "number",
+        description: "Maximum number of emails to return (default: 10).",
+        optional: true,
+      },
+    },
+  },
+  {
+    name: "get_important_emails",
+    description:
+      "Retrieve unread or high-importance emails that may require the user's attention.",
+    args: {},
+  },
 ];
 
 /** Fast lookup set used by the plan validator */

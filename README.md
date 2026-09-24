@@ -50,6 +50,7 @@ flowchart TD
         Procurement["Procurement\nget_pending_deliveries\nmark_delivery_received\nnotify_procurement"]
         Calendar["Calendar\nget_today_calendar"]
         Security["Security\nget_security_events"]
+        Gmail["Gmail (read-only)\nget_important_emails\nget_recent_emails"]
     end
 
     Actions["Authorized Actions\n(delivery receipts, notifications, queries)"]
@@ -69,8 +70,9 @@ flowchart TD
 
 | Capability | Description |
 |---|---|
-| **Business Briefing** | Full operational snapshot — meetings, deliveries, comms, security |
+| **Business Briefing** | Full operational snapshot — meetings, deliveries, inbox highlights, and security |
 | **Calendar** | Today's schedule from the connected calendar system |
+| **Gmail (read-only)** | Important/unread emails and recent inbox — no sending, no deletion |
 | **Procurement** | Delivery status, receipt sign-off, team notifications |
 | **Deliveries** | In-transit and pending delivery tracking |
 | **Security** | Access events, alerts, and anomalies from the security log |
@@ -186,9 +188,9 @@ Arclio retrieves today's meetings, active deliveries, pending comms, follow-ups,
 
 > *"What needs my attention?"*
 
-**Tools:** `get_pending_deliveries` · `get_today_calendar` · `get_security_events`
+**Tools:** `get_pending_deliveries` · `get_today_calendar` · `get_security_events` · `get_important_emails`
 
-Arclio surfaces the most urgent items across all connected systems — in-transit deliveries needing sign-off, upcoming meetings needing prep, security alerts, and pending approvals.
+Arclio surfaces the most urgent items across all connected systems — in-transit deliveries needing sign-off, upcoming meetings needing prep, security alerts, and important unread emails.
 
 ---
 
@@ -199,6 +201,26 @@ Arclio surfaces the most urgent items across all connected systems — in-transi
 **Tools:** `get_pending_deliveries`
 
 Arclio surfaces pending approvals, outstanding supplier replies, and deliveries awaiting sign-off — items that are blocked on the user's action.
+
+---
+
+### Anything important in my inbox?
+
+> *"Anything important in my inbox?"*
+
+**Tools:** `get_important_emails`
+
+Arclio retrieves unread and high-importance emails from the inbox. Read-only — no emails are sent, modified, or deleted. Demo data includes finance sign-off requests, security alerts, and supplier quotes.
+
+---
+
+### Show me my recent emails
+
+> *"Show me my recent emails"*
+
+**Tools:** `get_recent_emails`
+
+Arclio retrieves the most recent inbox messages sorted by time, showing subject, sender, and a short snippet.
 
 ---
 
@@ -255,7 +277,7 @@ arclio/
 │   │       │   ├── bedrock.ts       # Amazon Bedrock (Converse API)
 │   │       │   ├── stub.ts          # Deterministic offline provider
 │   │       │   └── index.ts         # Provider factory
-│   │       └── tests/               # Unit tests (38 passing)
+│   │       └── tests/               # Unit tests (55 passing)
 │   │
 │   ├── mcp-server/          # MCP tool layer
 │   │   └── src/
@@ -263,15 +285,16 @@ arclio/
 │   │       ├── direct.ts            # In-process tool dispatch (production)
 │   │       ├── tools/
 │   │       │   ├── calendar.ts
+│   │       │   ├── gmail.ts              # Gmail read-only (get_important_emails, get_recent_emails)
 │   │       │   ├── procurement.ts
 │   │       │   └── security.ts
 │   │       └── data/
-│   │           ├── mock-data.ts          # In-memory business data
+│   │           ├── mock-data.ts          # In-memory business data (incl. Email records)
 │   │           └── notification-store.ts # In-memory + optional file-backed store
 │   │
 │   ├── api/                 # HTTP bridge — web UI ↔ agent
 │   │   └── src/
-│   │       ├── app.ts               # Express: /api/agent, /api/dashboard, data endpoints
+│   │       ├── app.ts               # Express: /api/agent, /api/dashboard, /api/gmail, data endpoints
 │   │       │                        # Voice endpoints: GET /api/voice/config, POST /api/voice/tts
 │   │       └── tests/
 │   │           └── voice.test.ts    # ElevenLabs proxy unit tests (8 tests)
@@ -360,12 +383,15 @@ Runs the full agent and API test suites. No AWS credentials required.
 
 | Suite | Coverage | Tests |
 |---|---|---|
-| `stub-provider.test.ts` | Intent patterns, tool selection, vendor extraction | 9 |
+| `stub-provider.test.ts` | Intent patterns, tool selection, vendor extraction, Gmail intents | 27 |
+| `agent-fallback.test.ts` | Stub fallback when primary provider returns unknown | 7 |
 | `plan-validator.test.ts` | Schema validation, tool allowlist, step limits | 8 |
 | `bedrock-provider.test.ts` | Mocked Bedrock client — happy path, error cases, fallback | 13 |
+| `scribe-voice.test.ts` | Scribe STT token, voice config, routing | 24 |
 | `voice.test.ts` | ElevenLabs proxy — config, TTS, error handling | 8 |
+| `dashboard-routing.test.ts` | MCP URL resolution, HTTP vs direct path | 8 |
 
-**Current status:** 38 tests passing. No AWS credentials required.
+**Current status:** 109 tests passing. No AWS credentials required.
 
 ### Bedrock live verification
 
@@ -420,9 +446,11 @@ node packages/agent/dist/verify-bedrock-live.js
 | Procurement — delivery queries and receipt | ✓ |
 | Procurement — team notifications | ✓ |
 | Calendar — today's schedule | ✓ |
+| Gmail — read-only inbox (important + recent emails) | ✓ |
 | Security — event log queries | ✓ |
-| Business briefing (multi-system snapshot) | ✓ |
-| Needs-attention and follow-up intents | ✓ |
+| Business briefing (calendar + deliveries + inbox + security) | ✓ |
+| Needs-attention — surfaces emails, deliveries, meetings, security | ✓ |
+| Follow-up intents | ✓ |
 | Pending approval and waiting-on-me intents | ✓ |
 | Result verification (passed / partial / failed) | ✓ |
 | Amazon Bedrock provider (Claude Sonnet 4.6) | ✓ |
@@ -498,6 +526,8 @@ Arclio demonstrates a practical AI orchestration layer for business operations, 
 - [x] Alexa+ simulated experience
 - [x] Responsive web experience (desktop + mobile)
 - [x] Mobile/iOS speech lifecycle hardening
+- [x] Calendar integration (today's events)
+- [x] Gmail read-only integration (important emails, recent inbox)
 
 ### Future
 

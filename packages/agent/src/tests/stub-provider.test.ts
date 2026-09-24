@@ -149,6 +149,53 @@ test("unknown intent — returns empty steps", async () => {
   assert.deepEqual(plan.steps, []);
 });
 
+// ---------------------------------------------------------------------------
+// Gmail / inbox intents
+// ---------------------------------------------------------------------------
+
+test("inbox_important — 'Anything important in my inbox?'", async () => {
+  const plan = await stub.buildPlan("Anything important in my inbox?");
+  assert.equal(plan.intent, "inbox_important");
+  assert.deepEqual(toolNames(plan), ["get_important_emails"]);
+});
+
+test("inbox_important — 'What important emails do I have?'", async () => {
+  const plan = await stub.buildPlan("What important emails do I have?");
+  assert.equal(plan.intent, "inbox_important");
+});
+
+test("inbox_important — 'Any urgent emails?'", async () => {
+  const plan = await stub.buildPlan("Any urgent emails?");
+  assert.equal(plan.intent, "inbox_important");
+});
+
+test("inbox_important — 'Check my inbox'", async () => {
+  const plan = await stub.buildPlan("Check my inbox");
+  assert.equal(plan.intent, "inbox_important");
+});
+
+test("inbox_recent — 'Show me my recent emails'", async () => {
+  const plan = await stub.buildPlan("Show me my recent emails");
+  assert.equal(plan.intent, "inbox_recent");
+  assert.deepEqual(toolNames(plan), ["get_recent_emails"]);
+});
+
+test("inbox_recent — 'What emails did I get today?'", async () => {
+  const plan = await stub.buildPlan("What emails did I get today?");
+  assert.equal(plan.intent, "inbox_recent");
+});
+
+test("inbox_recent — 'Show me my emails'", async () => {
+  const plan = await stub.buildPlan("Show me my emails");
+  assert.equal(plan.intent, "inbox_recent");
+});
+
+test("needs_attention — includes get_important_emails in plan", async () => {
+  const plan = await stub.buildPlan("What needs my attention?");
+  const tools = toolNames(plan);
+  assert.ok(tools.includes("get_important_emails"), "missing get_important_emails");
+});
+
 test("all steps reference only registered tool names", async () => {
   const inputs = [
     "What's happening at the office today?",
@@ -156,6 +203,8 @@ test("all steps reference only registered tool names", async () => {
     "Mark the Acme delivery as received and notify procurement.",
     "What meetings do I have?",
     "Show me the security alerts.",
+    "Anything important in my inbox?",
+    "Show me my recent emails",
   ];
   const VALID = new Set([
     "get_today_calendar",
@@ -163,6 +212,8 @@ test("all steps reference only registered tool names", async () => {
     "get_security_events",
     "mark_delivery_received",
     "notify_procurement",
+    "get_recent_emails",
+    "get_important_emails",
   ]);
   for (const input of inputs) {
     const plan = await stub.buildPlan(input);

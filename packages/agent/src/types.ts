@@ -13,7 +13,9 @@ export type ToolName =
   | "get_pending_deliveries"
   | "get_security_events"
   | "mark_delivery_received"
-  | "notify_procurement";
+  | "notify_procurement"
+  | "get_recent_emails"
+  | "get_important_emails";
 
 export interface ToolCall {
   tool: ToolName;

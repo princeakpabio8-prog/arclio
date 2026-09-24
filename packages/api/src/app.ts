@@ -177,6 +177,14 @@ async function callMcpToolDirect(tool: string, args: Record<string, unknown> = {
         recipients: args.recipients as string[] | undefined,
       });
 
+    case "get_recent_emails":
+      return direct.getRecentEmails({
+        limit: args.limit as number | undefined,
+      });
+
+    case "get_important_emails":
+      return direct.getImportantEmails();
+
     default:
       throw new Error(`Unknown tool: ${tool}`);
   }
@@ -532,6 +540,52 @@ app.get("/api/dashboard", async (_req, res) => {
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
         .slice(0, 5),
     };
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/gmail  — important/unread emails (read-only)
+// GET /api/gmail/recent  — most recent emails
+// ---------------------------------------------------------------------------
+
+app.get("/api/gmail", async (_req, res) => {
+  await withMcp(res, async () => {
+    const data = (await callMcpTool("get_important_emails")) as {
+      count: number;
+      emails: Array<{
+        id: string;
+        subject: string;
+        from: string;
+        receivedAt: string;
+        snippet: string;
+        isRead: boolean;
+        importance: string;
+        labels: string[];
+      }>;
+    };
+    return data;
+  });
+});
+
+app.get("/api/gmail/recent", async (req, res) => {
+  const limit = parseInt((req.query.limit as string | undefined) ?? "10", 10);
+  await withMcp(res, async () => {
+    const data = (await callMcpTool("get_recent_emails", {
+      limit: isNaN(limit) ? 10 : limit,
+    })) as {
+      count: number;
+      emails: Array<{
+        id: string;
+        subject: string;
+        from: string;
+        receivedAt: string;
+        snippet: string;
+        isRead: boolean;
+        importance: string;
+        labels: string[];
+      }>;
+    };
+    return data;
   });
 });
 

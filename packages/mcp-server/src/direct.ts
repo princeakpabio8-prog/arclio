@@ -11,8 +11,8 @@
  * tool implementations.
  */
 
-import { CALENDAR_EVENTS, DELIVERIES, SECURITY_EVENTS } from "./data/mock-data.js";
-import type { SecurityEventType } from "./data/mock-data.js";
+import { CALENDAR_EVENTS, DELIVERIES, EMAILS, SECURITY_EVENTS } from "./data/mock-data.js";
+import type { EmailImportance, SecurityEventType } from "./data/mock-data.js";
 import { appendNotification, readNotifications } from "./data/notification-store.js";
 
 // ---------------------------------------------------------------------------
@@ -216,6 +216,83 @@ export function markDeliveryReceived(opts: {
       notes: delivery.notes,
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// get_recent_emails
+// ---------------------------------------------------------------------------
+
+export function getRecentEmails(opts: { limit?: number }): {
+  count: number;
+  emails: Array<{
+    id: string;
+    subject: string;
+    from: string;
+    receivedAt: string;
+    snippet: string;
+    isRead: boolean;
+    importance: EmailImportance;
+    labels: string[];
+  }>;
+} {
+  const limit = opts.limit ?? 10;
+  const sorted = [...EMAILS].sort(
+    (a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime(),
+  );
+  const emails = sorted.slice(0, limit).map((e) => ({
+    id: e.id,
+    subject: e.subject,
+    from: e.from,
+    receivedAt: new Date(e.receivedAt).toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    }),
+    snippet: e.snippet,
+    isRead: e.isRead,
+    importance: e.importance,
+    labels: e.labels,
+  }));
+  return { count: emails.length, emails };
+}
+
+// ---------------------------------------------------------------------------
+// get_important_emails
+// ---------------------------------------------------------------------------
+
+export function getImportantEmails(): {
+  count: number;
+  emails: Array<{
+    id: string;
+    subject: string;
+    from: string;
+    receivedAt: string;
+    snippet: string;
+    isRead: boolean;
+    importance: EmailImportance;
+    labels: string[];
+  }>;
+} {
+  const important = EMAILS.filter(
+    (e) => !e.isRead || e.importance === ("high" satisfies EmailImportance),
+  ).sort(
+    (a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime(),
+  );
+  const emails = important.map((e) => ({
+    id: e.id,
+    subject: e.subject,
+    from: e.from,
+    receivedAt: new Date(e.receivedAt).toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    }),
+    snippet: e.snippet,
+    isRead: e.isRead,
+    importance: e.importance,
+    labels: e.labels,
+  }));
+  return { count: emails.length, emails };
 }
 
 export { readNotifications } from "./data/notification-store.js";

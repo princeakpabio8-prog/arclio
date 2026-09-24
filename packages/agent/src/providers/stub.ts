@@ -111,6 +111,11 @@ const INTENT_RULES: Array<{
         args: {},
         reason: "Check for security events requiring a response.",
       },
+      {
+        tool: "get_important_emails",
+        args: {},
+        reason: "Check for important or unread emails requiring action.",
+      },
     ],
   },
 
@@ -357,6 +362,63 @@ const INTENT_RULES: Array<{
         tool: "get_security_events",
         args: {},
         reason: "Retrieve today's security event log.",
+      },
+    ],
+  },
+
+  // -----------------------------------------------------------------------
+  // inbox_important — "anything important in my inbox" / "what's in my email"
+  // -----------------------------------------------------------------------
+  {
+    intent: "inbox_important",
+    patterns: [
+      /important.*inbox/i,
+      /inbox.*important/i,
+      /anything.*important.*email/i,
+      /anything.*important.*inbox/i,
+      /what.*important.*email/i,
+      /important.*email/i,
+      /email.*important/i,
+      /urgent.*email/i,
+      /email.*urgent/i,
+      /unread.*email/i,
+      /email.*unread/i,
+      /what.*inbox/i,
+      /check.*inbox/i,
+      /anything.*inbox/i,
+      /inbox.*today/i,
+    ],
+    build: () => [
+      {
+        tool: "get_important_emails",
+        args: {},
+        reason: "Retrieve unread or high-importance emails requiring attention.",
+      },
+    ],
+  },
+
+  // -----------------------------------------------------------------------
+  // inbox_recent — "show me my recent emails" / "what emails did I get today"
+  // -----------------------------------------------------------------------
+  {
+    intent: "inbox_recent",
+    patterns: [
+      /recent.*email/i,
+      /email.*recent/i,
+      /latest.*email/i,
+      /email.*latest/i,
+      /show.*email/i,
+      /my.*email/i,
+      /what.*email/i,
+      /new.*email/i,
+      /email.*today/i,
+      /today.*email/i,
+    ],
+    build: () => [
+      {
+        tool: "get_recent_emails",
+        args: {},
+        reason: "Retrieve recent inbox emails.",
       },
     ],
   },

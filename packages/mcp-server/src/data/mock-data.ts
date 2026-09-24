@@ -231,3 +231,97 @@ export const SECURITY_EVENTS: SecurityEvent[] = [
     actor: "unknown",
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Gmail (read-only demo)
+// ---------------------------------------------------------------------------
+
+export type EmailImportance = "high" | "normal" | "low";
+
+export interface Email {
+  id: string;
+  subject: string;
+  from: string;
+  to: string;
+  receivedAt: string; // ISO 8601
+  snippet: string; // short preview
+  isRead: boolean;
+  importance: EmailImportance;
+  labels: string[];
+}
+
+// Timestamps relative to today so the demo always feels current
+export const EMAILS: Email[] = [
+  {
+    id: "msg-001",
+    subject: "Action required: Q3 budget allocation sign-off",
+    from: "finance@arclio.dev",
+    to: "you@arclio.dev",
+    receivedAt: todayAt("08:15"),
+    snippet:
+      "Hi, we need your sign-off on the Q3 budget allocation by end of business today. The total is $142,000. Please review the attached spreadsheet and reply to confirm.",
+    isRead: false,
+    importance: "high",
+    labels: ["inbox", "finance", "action-required"],
+  },
+  {
+    id: "msg-002",
+    subject: "TechVault laptop order — revised delivery date",
+    from: "orders@techvault.com",
+    to: "procurement@arclio.dev",
+    receivedAt: todayAt("09:03"),
+    snippet:
+      "Your order #TVLT-25-0088 has been updated. The 4 × MacBook Pro M4 units are now confirmed for tomorrow delivery (09:00–17:00). No action required.",
+    isRead: true,
+    importance: "normal",
+    labels: ["inbox", "procurement", "orders"],
+  },
+  {
+    id: "msg-003",
+    subject: "Security alert: unauthorised access attempt — Server Room",
+    from: "security-alerts@arclio.dev",
+    to: "you@arclio.dev",
+    receivedAt: todayAt("12:10"),
+    snippet:
+      "An access attempt was made to the Server Room at 12:03 by an unrecognised badge. The attempt was denied. Please review the security log and confirm no follow-up is required.",
+    isRead: false,
+    importance: "high",
+    labels: ["inbox", "security", "alert", "action-required"],
+  },
+  {
+    id: "msg-004",
+    subject: "Acme Corp — Q4 supplies quote (revised)",
+    from: "sales@acmecorp.com",
+    to: "procurement@arclio.dev",
+    receivedAt: todayAt("10:45"),
+    snippet:
+      "Hi, following our call last week, please find the revised Q4 pricing attached. We'd appreciate a response before Friday so we can lock in the rate. Happy to jump on a quick call.",
+    isRead: false,
+    importance: "high",
+    labels: ["inbox", "procurement", "suppliers", "awaiting-reply"],
+  },
+  {
+    id: "msg-005",
+    subject: "Engineering Standup notes — yesterday",
+    from: "eng-lead@arclio.dev",
+    to: "team@arclio.dev",
+    receivedAt: todayAt("08:30"),
+    snippet:
+      "Yesterday's standup summary: Auth service deployment complete. Calendar integration in progress. No blockers. Next standup today at 14:00.",
+    isRead: true,
+    importance: "normal",
+    labels: ["inbox", "engineering"],
+  },
+  {
+    id: "msg-006",
+    subject: "Cleaning supplies delivery — receipt confirmation",
+    from: "facilities@arclio.dev",
+    to: "procurement@arclio.dev",
+    receivedAt: todayAt("09:20"),
+    snippet:
+      "Confirming that yesterday's CleanPro delivery (CPS-25-0310) has been received and stored. All 12 items accounted for.",
+    isRead: true,
+    importance: "low",
+    labels: ["inbox", "facilities", "procurement"],
+  },
+];

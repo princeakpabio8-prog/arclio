@@ -19,6 +19,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "node:crypto";
 
 import { registerCalendarTools } from "./tools/calendar.js";
+import { registerGmailTools } from "./tools/gmail.js";
 import { registerProcurementTools } from "./tools/procurement.js";
 import { registerSecurityTools } from "./tools/security.js";
 
@@ -43,6 +44,7 @@ function createSession(): {
   });
 
   registerCalendarTools(server);
+  registerGmailTools(server);
   registerProcurementTools(server);
   registerSecurityTools(server);
 

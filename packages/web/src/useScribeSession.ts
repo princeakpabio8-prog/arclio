@@ -22,6 +22,17 @@
  *
  * Exports the same UseMicSessionReturn shape as useMicSession so
  * AgentInput and AlexaSimulator need no changes.
+ *
+ * ── Fix: stale-closure disconnect ────────────────────────────────────────────
+ * The SDK's `useScribe()` returns a new `scribe` object on every render.
+ * Callbacks passed to `useScribe({ onCommittedTranscript })` are closed over
+ * at hook-creation time via useCallback(…, []). If those callbacks capture
+ * `scribe.disconnect` directly they hold a stale reference that may call
+ * `disconnect` on the wrong `connectionRef`.
+ *
+ * Fix: store `scribe.disconnect` in a stable ref (`disconnectRef`) that is
+ * updated every render. All callbacks read from the ref, never from the
+ * stale closure.
  */
 
 import { useState, useRef, useCallback, useEffect } from "react";
@@ -31,7 +42,7 @@ import type { UseMicSessionOptions, UseMicSessionReturn } from "./useMicSession.
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /** ms after connect() with no committed transcript before treating as hung. */
-const WATCHDOG_MS = 15_000;
+const WATCHDOG_MS = 10_000;
 
 /** Scribe model for realtime STT. */
 const SCRIBE_MODEL = "scribe_v2_realtime";
@@ -55,12 +66,18 @@ export function useScribeSession({
   useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
   useEffect(() => { onSilenceRef.current    = onSilence;    }, [onSilence]);
 
-  // ── useScribe (official SDK hook) ─────────────────────────────────────────
-  // Callbacks are defined as stable refs below; the hook is mounted once and
-  // reused across taps (connect/disconnect per tap).
+  // ── Stale-closure fix ─────────────────────────────────────────────────────
+  // `useScribe()` returns a new object each render. Store `.disconnect` in a
+  // ref that we overwrite every render so the useCallback closures (which
+  // capture [] deps) always call the *current* disconnect, not a stale one.
+  const disconnectRef = useRef<() => void>(() => { /* will be set before first use */ });
 
-  // Capture the session ID at callback-creation time inside connect() so that
-  // stale events from a superseded session are ignored.
+  // ── useScribe (official SDK hook) ─────────────────────────────────────────
+  // Callbacks are defined with stable [] deps; they read mutable refs for all
+  // values that change across renders/taps.
+
+  // activeSessionRef: the session ID that was current when connect() was called.
+  // Only events belonging to that session are processed.
   const activeSessionRef = useRef(0);
 
   const scribe = useScribe({
@@ -68,50 +85,57 @@ export function useScribeSession({
       const mySession = activeSessionRef.current;
       if (sessionRef.current !== mySession) return;
       const transcript = msg.text.trim();
-      // Committed transcript → stop watchdog, disconnect, deliver.
+      // Stop watchdog, then disconnect via the always-current ref.
       if (watchdogRef.current) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
-      // Disconnect immediately — one tap, one result.
-      scribe.disconnect();
+      // Bump the session counter so any subsequent disconnect-triggered
+      // onDisconnect callback is treated as belonging to a dead session.
+      sessionRef.current++;
+      disconnectRef.current();
       setIsListening(false);
       if (transcript) {
         onTranscriptRef.current(transcript);
       } else {
         onSilenceRef.current?.();
       }
-    // scribe.disconnect is stable per useScribe internals (useCallback with [])
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []),
+    }, []), // [] is correct — all mutable state is read via refs
 
     onError: useCallback((err: Error | Event) => {
       const mySession = activeSessionRef.current;
       if (sessionRef.current !== mySession) return;
       if (watchdogRef.current) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
       console.error("[scribe] error:", err instanceof Error ? err.message : String(err));
+      sessionRef.current++;
+      disconnectRef.current();
       setIsListening(false);
       setError("Voice input isn't available right now. Tap the mic to try again.");
     }, []),
 
     onDisconnect: useCallback(() => {
-      // Safety net: if the session ended unexpectedly (network drop, etc.)
-      // and we're still showing isListening, return to idle.
+      // Safety net: if the socket closed unexpectedly (network drop, server
+      // hangup) and we are still showing "Listening…", return to idle.
+      // We do NOT clear the watchdog here because a committed-transcript path
+      // already cleared it before calling disconnect().
       if (watchdogRef.current) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
       setIsListening((prev) => (prev ? false : prev));
     }, []),
   });
 
+  // Keep the ref current every render — this is the fix for the stale closure.
+  disconnectRef.current = scribe.disconnect;
+
   // Unmount cleanup.
   useEffect(() => () => {
     if (watchdogRef.current) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
-    scribe.disconnect();
-  // scribe.disconnect is stable
+    disconnectRef.current();
+  // disconnectRef.current is always current; no dep needed
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Public API ──────────────────────────────────────────────────────────────
 
   const start = useCallback(async () => {
-    // Disconnect any previous session.
-    scribe.disconnect();
+    // Disconnect any previous session using the current disconnect ref.
+    disconnectRef.current();
 
     const mySession = ++sessionRef.current;
     activeSessionRef.current = mySession;
@@ -135,7 +159,7 @@ export function useScribeSession({
       token = tokenData.token;
     } catch (err) {
       if (sessionRef.current !== mySession) return;
-      scribe.disconnect();
+      disconnectRef.current();
       setIsListening(false);
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg.includes("not configured")
@@ -149,7 +173,8 @@ export function useScribeSession({
     // ── 2. Watchdog: abort if no committed transcript within WATCHDOG_MS ──
     watchdogRef.current = setTimeout(() => {
       if (sessionRef.current !== mySession) return;
-      scribe.disconnect();
+      sessionRef.current++;
+      disconnectRef.current();
       setIsListening(false);
       setError("Voice input isn't available right now. Tap the mic to try again.");
     }, WATCHDOG_MS);
@@ -162,6 +187,7 @@ export function useScribeSession({
         token,
         modelId: SCRIBE_MODEL,
         commitStrategy: CommitStrategy.VAD,
+        languageCode: "en",
         microphone: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -171,6 +197,7 @@ export function useScribeSession({
     } catch (err) {
       if (sessionRef.current !== mySession) return;
       if (watchdogRef.current) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
+      sessionRef.current++;
       setIsListening(false);
       const name = err instanceof DOMException ? err.name : "";
       if (name === "NotAllowedError" || name === "PermissionDeniedError") {
@@ -179,13 +206,15 @@ export function useScribeSession({
         setError("Voice input isn't available right now. Tap the mic to try again.");
       }
     }
-  // scribe.connect and scribe.disconnect are stable per the SDK hook
+  // scribe.connect is stable per the SDK (useCallback with option deps);
+  // disconnectRef is a ref, not state — no dep needed.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [scribe.connect]);
 
   const stop = useCallback(() => {
     if (watchdogRef.current) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
-    scribe.disconnect();
+    sessionRef.current++;
+    disconnectRef.current();
     setIsListening(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

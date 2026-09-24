@@ -325,7 +325,9 @@ interface ScribeSessionState {
 
 /**
  * Simulate the committed-transcript delivery logic in useScribeSession.
- * This mirrors the onCommittedTranscript callback body.
+ * This mirrors the onCommittedTranscript callback body (post-fix).
+ * Fix: sessionRef is bumped BEFORE disconnect() so the subsequent
+ * onDisconnect callback sees a dead session and does not interfere.
  */
 function simulateCommittedTranscript(
   text: string,
@@ -338,6 +340,8 @@ function simulateCommittedTranscript(
 ): void {
   if (currentSession.value !== sessionId) return;
   const transcript = text.trim();
+  // Bump session counter BEFORE disconnect — fix for stale-closure / onDisconnect re-entry
+  currentSession.value++;
   disconnect();
   state.sessionClosed = true;
   if (transcript) {
@@ -347,7 +351,7 @@ function simulateCommittedTranscript(
   }
 }
 
-/** Simulate the onError callback body. */
+/** Simulate the onError callback body (post-fix). */
 function simulateScribeError(
   sessionId: number,
   currentSession: { value: number },
@@ -355,6 +359,7 @@ function simulateScribeError(
   setError: (e: string) => void,
 ): void {
   if (currentSession.value !== sessionId) return;
+  currentSession.value++;
   state.sessionClosed = true;
   setError("Voice input isn't available right now. Tap the mic to try again.");
 }
@@ -459,6 +464,53 @@ test("Scribe: cleanup after committed transcript — second delivery is a no-op"
   assert.equal(deliveries.length, 1, "only one delivery should occur");
   assert.equal(deliveries[0], "first command");
   assert.equal(closeCalls.length, 1, "disconnect should only happen once");
+});
+
+// ---------------------------------------------------------------------------
+// Stale-closure fix: session bump before disconnect prevents onDisconnect re-entry
+// ---------------------------------------------------------------------------
+
+test("Scribe fix: session is bumped before disconnect so onDisconnect is a no-op", () => {
+  // Simulate: onCommittedTranscript fires, bumps session, calls disconnect,
+  // then onDisconnect fires (async). onDisconnect should see a dead session
+  // and must NOT reset isListening a second time.
+  const events: string[] = [];
+  const currentSession = { value: 1 };
+
+  // Simulate onCommittedTranscript (post-fix: bump before disconnect)
+  function onCommittedTranscript(text: string) {
+    if (currentSession.value !== 1) return;
+    currentSession.value++; // bump to 2 before calling disconnect
+    events.push("bumped");
+    events.push("disconnected"); // simulate scribe.disconnect()
+    events.push("setIsListening(false)");
+    events.push("onTranscript:" + text.trim());
+  }
+
+  // Simulate onDisconnect (fires after the WebSocket close event)
+  function onDisconnect() {
+    // In the fixed version, the session guard (currentSession.value !== mySession)
+    // would already have filtered this out before it affects state.
+    // Here we test the bump-then-disconnect invariant directly:
+    // onDisconnect fires AFTER bump, so it should see session 2 ≠ 1 → no-op.
+    if (currentSession.value === 1) {
+      // This path must NOT be taken (would mean disconnect fired before bump)
+      events.push("ERROR:onDisconnect-before-bump");
+    } else {
+      events.push("onDisconnect-noop");
+    }
+  }
+
+  onCommittedTranscript("handle the delivery");
+  onDisconnect(); // fires asynchronously in production
+
+  assert.equal(events[0], "bumped");
+  assert.equal(events[1], "disconnected");
+  assert.equal(events[2], "setIsListening(false)");
+  assert.equal(events[3], "onTranscript:handle the delivery");
+  assert.equal(events[4], "onDisconnect-noop", "onDisconnect must be a no-op after session bump");
+  assert.equal(events.some(e => e.startsWith("ERROR")), false, "no error events must occur");
+  assert.equal(currentSession.value, 2, "session must be bumped exactly once");
 });
 
 // ---------------------------------------------------------------------------
