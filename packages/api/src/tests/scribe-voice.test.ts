@@ -8,8 +8,8 @@
  *   - /api/voice/scribe-token — 503 when ElevenLabs not configured
  *   - /api/voice/scribe-token — 502 when ElevenLabs upstream returns non-200
  *   - /api/voice/scribe-token — 502 when upstream throws (network error)
- *   - /api/voice/scribe-token — 502 when response missing signed_url field
- *   - /api/voice/scribe-token — returns signedUrl on success
+ *   - /api/voice/scribe-token — 502 when response missing token field
+ *   - /api/voice/scribe-token — returns { token } on success
  *   - /api/voice/scribe-token — ELEVENLABS_API_KEY never appears in response
  *   - /api/voice/config now includes scribeAvailable flag
  *
@@ -100,15 +100,14 @@ async function makeScribeTokenHandler(
         res.status(502).json({ error: `ElevenLabs returned ${upstream.status}` });
         return;
       }
-      const data = await upstream.json() as { token?: string; signed_url?: string };
-      const signedUrl = data.signed_url ?? (data.token
-        ? `wss://api.elevenlabs.io/v1/speech-to-text/stream?token=${data.token}`
-        : undefined);
-      if (!signedUrl) {
+      const data = await upstream.json() as { token?: string };
+      if (!data.token) {
         res.status(502).json({ error: "Scribe token response missing token" });
         return;
       }
-      res.json({ signedUrl });
+      // Return ONLY the raw token — the API key never leaves the server.
+      // The @elevenlabs/client Scribe SDK resolves the WebSocket URL internally.
+      res.json({ token: data.token });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(502).json({ error: "Scribe token request failed: " + msg });
@@ -173,12 +172,12 @@ test("scribe-token — 502 when upstream network throws", async () => {
   assert.match(body.error, /Scribe token request failed/);
 });
 
-test("scribe-token — 502 when response is missing token and signed_url", async () => {
+test("scribe-token — 502 when response is missing token field", async () => {
   const mockFetch: MockFetch = async () => ({
     ok: true,
     status: 200,
     text: async () => "{}",
-    json: async () => ({}), // neither token nor signed_url field
+    json: async () => ({}), // no token field
   });
   const handler = await makeScribeTokenHandler("sk-key", "voice-id", mockFetch);
   const res = makeRes();
@@ -188,37 +187,24 @@ test("scribe-token — 502 when response is missing token and signed_url", async
   assert.match(body.error, /missing token/);
 });
 
-test("scribe-token — returns signedUrl on success with { token } response", async () => {
-  const token = "abc123";
-  const expectedUrl = `wss://api.elevenlabs.io/v1/speech-to-text/stream?token=${token}`;
+test("scribe-token — returns { token } on success", async () => {
+  const expectedToken = "sutkn_abc123def456";
   const mockFetch: MockFetch = async () => ({
     ok: true,
     status: 200,
     text: async () => "",
-    json: async () => ({ token }),
+    json: async () => ({ token: expectedToken }),
   });
   const handler = await makeScribeTokenHandler("sk-key", "voice-id", mockFetch);
   const res = makeRes();
   await handler({ body: {} }, res);
   assert.equal(res.statusCode, 200);
-  const body = res.jsonBody as { signedUrl: string };
-  assert.equal(body.signedUrl, expectedUrl);
-});
-
-test("scribe-token — returns signedUrl on success with { signed_url } response", async () => {
-  const expectedUrl = "wss://api.elevenlabs.io/v1/realtime?token=abc123";
-  const mockFetch: MockFetch = async () => ({
-    ok: true,
-    status: 200,
-    text: async () => "",
-    json: async () => ({ signed_url: expectedUrl }),
-  });
-  const handler = await makeScribeTokenHandler("sk-key", "voice-id", mockFetch);
-  const res = makeRes();
-  await handler({ body: {} }, res);
-  assert.equal(res.statusCode, 200);
-  const body = res.jsonBody as { signedUrl: string };
-  assert.equal(body.signedUrl, expectedUrl);
+  const body = res.jsonBody as { token: string };
+  // Returns the raw token — the SDK resolves the WebSocket URL internally
+  assert.equal(body.token, expectedToken);
+  // Does NOT contain a signedUrl field (that was the old incorrect approach)
+  assert.equal("signedUrl" in (body as Record<string, unknown>), false,
+    "response must not contain signedUrl — SDK uses raw token");
 });
 
 test("scribe-token — ELEVENLABS_API_KEY never appears in browser response", async () => {
@@ -232,7 +218,7 @@ test("scribe-token — ELEVENLABS_API_KEY never appears in browser response", as
       ok: true,
       status: 200,
       text: async () => "",
-      json: async () => ({ signed_url: "wss://example.com/token=xyz" }),
+      json: async () => ({ token: "sutkn_safe-token-only" }),
     };
   };
 
@@ -321,12 +307,13 @@ test("isMobile — true for iPad UA with touch points", () => {
 test("isMobile — false for touchscreen laptop (touch points but non-mobile UA)", () => {
   // Surface Pro, Chromebook — has touch but NOT a mobile UA
   const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0";
-  // Has touch points like a touchscreen laptop, but UA is desktop
   assert.equal(simulateIsMobile(ua, 10), false, "touchscreen laptop must not be classified as mobile");
 });
 
 // ---------------------------------------------------------------------------
 // Scribe session lifecycle — pure logic tests
+// (These test the session-ID guard and transcript delivery logic which is
+// independent of the SDK; the SDK itself is tested by ElevenLabs.)
 // ---------------------------------------------------------------------------
 
 interface ScribeSessionState {
@@ -337,60 +324,53 @@ interface ScribeSessionState {
 }
 
 /**
- * Simulate the Scribe WebSocket message handler logic
- * (mirrors useScribeSession.ts ws.onmessage behaviour)
+ * Simulate the committed-transcript delivery logic in useScribeSession.
+ * This mirrors the onCommittedTranscript callback body.
  */
-function simulateScribeMessage(
-  msgJson: string,
-  state: ScribeSessionState,
+function simulateCommittedTranscript(
+  text: string,
   sessionId: number,
   currentSession: { value: number },
+  state: ScribeSessionState,
   onTranscript: (t: string) => void,
   onSilence: () => void,
-  setError: (e: string) => void,
-  teardown: () => void,
-  setIsListening: (v: boolean) => void,
+  disconnect: () => void,
 ): void {
   if (currentSession.value !== sessionId) return;
-  let msg: { type: string; transcript_event?: { type: string; text: string }; message?: string };
-  try {
-    msg = JSON.parse(msgJson) as typeof msg;
-  } catch { return; }
+  const transcript = text.trim();
+  disconnect();
+  state.sessionClosed = true;
+  if (transcript) {
+    onTranscript(transcript);
+  } else {
+    onSilence();
+  }
+}
 
-  if (msg.type === "error") {
-    teardown();
-    setIsListening(false);
-    setError("Voice input isn't available right now. Tap the mic to try again.");
-    return;
-  }
-  if (msg.type === "transcript" && msg.transcript_event) {
-    if (msg.transcript_event.type === "committed") {
-      const transcript = msg.transcript_event.text.trim();
-      teardown();
-      setIsListening(false);
-      if (transcript) {
-        onTranscript(transcript);
-      } else {
-        onSilence();
-      }
-    }
-  }
+/** Simulate the onError callback body. */
+function simulateScribeError(
+  sessionId: number,
+  currentSession: { value: number },
+  state: ScribeSessionState,
+  setError: (e: string) => void,
+): void {
+  if (currentSession.value !== sessionId) return;
+  state.sessionClosed = true;
+  setError("Voice input isn't available right now. Tap the mic to try again.");
 }
 
 test("Scribe: committed transcript → onTranscript called, session closed", () => {
   const state: ScribeSessionState = { transcriptDelivered: null, silenceCalled: false, error: null, sessionClosed: false };
   const currentSession = { value: 1 };
 
-  simulateScribeMessage(
-    JSON.stringify({ type: "transcript", transcript_event: { type: "committed", text: "Handle the Acme delivery" } }),
-    state,
+  simulateCommittedTranscript(
+    "Handle the Acme delivery",
     1,
     currentSession,
+    state,
     (t) => { state.transcriptDelivered = t; },
     () => { state.silenceCalled = true; },
-    (e) => { state.error = e; },
-    () => { state.sessionClosed = true; },
-    () => { /* setIsListening */ },
+    () => { /* disconnect */ },
   );
 
   assert.equal(state.transcriptDelivered, "Handle the Acme delivery");
@@ -403,16 +383,14 @@ test("Scribe: empty committed transcript → onSilence called, not onTranscript"
   const state: ScribeSessionState = { transcriptDelivered: null, silenceCalled: false, error: null, sessionClosed: false };
   const currentSession = { value: 1 };
 
-  simulateScribeMessage(
-    JSON.stringify({ type: "transcript", transcript_event: { type: "committed", text: "   " } }),
-    state,
+  simulateCommittedTranscript(
+    "   ",
     1,
     currentSession,
+    state,
     (t) => { state.transcriptDelivered = t; },
     () => { state.silenceCalled = true; },
-    (e) => { state.error = e; },
-    () => { state.sessionClosed = true; },
-    () => { /* setIsListening */ },
+    () => { /* disconnect */ },
   );
 
   assert.equal(state.transcriptDelivered, null);
@@ -420,100 +398,67 @@ test("Scribe: empty committed transcript → onSilence called, not onTranscript"
   assert.equal(state.sessionClosed, true);
 });
 
-test("Scribe: error message → session closed, error surfaced", () => {
+test("Scribe: error → session closed, error surfaced", () => {
   const state: ScribeSessionState = { transcriptDelivered: null, silenceCalled: false, error: null, sessionClosed: false };
   const currentSession = { value: 1 };
 
-  simulateScribeMessage(
-    JSON.stringify({ type: "error", message: "authentication failed" }),
-    state,
+  simulateScribeError(
     1,
     currentSession,
-    (t) => { state.transcriptDelivered = t; },
-    () => { state.silenceCalled = true; },
+    state,
     (e) => { state.error = e; },
-    () => { state.sessionClosed = true; },
-    () => { /* setIsListening */ },
   );
 
-  assert.equal(state.transcriptDelivered, null);
   assert.equal(state.sessionClosed, true);
   assert.ok(state.error !== null, "error should be set");
 });
 
-test("Scribe: partial transcript → ignored, no onTranscript, no close", () => {
-  const state: ScribeSessionState = { transcriptDelivered: null, silenceCalled: false, error: null, sessionClosed: false };
-  const currentSession = { value: 1 };
-
-  simulateScribeMessage(
-    JSON.stringify({ type: "transcript", transcript_event: { type: "partial", text: "Handle the" } }),
-    state,
-    1,
-    currentSession,
-    (t) => { state.transcriptDelivered = t; },
-    () => { state.silenceCalled = true; },
-    (e) => { state.error = e; },
-    () => { state.sessionClosed = true; },
-    () => { /* setIsListening */ },
-  );
-
-  assert.equal(state.transcriptDelivered, null);
-  assert.equal(state.silenceCalled, false);
-  assert.equal(state.sessionClosed, false);
-});
-
-test("Scribe: stale session message → ignored (no overlapping session delivery)", () => {
+test("Scribe: stale session transcript → ignored (no overlapping session delivery)", () => {
   const state: ScribeSessionState = { transcriptDelivered: null, silenceCalled: false, error: null, sessionClosed: false };
   // Session was 1 but we're now on session 2 — simulate second tap starting
   const currentSession = { value: 2 };
 
-  simulateScribeMessage(
-    JSON.stringify({ type: "transcript", transcript_event: { type: "committed", text: "stale text" } }),
-    state,
+  simulateCommittedTranscript(
+    "stale text",
     1, // this message belongs to old session 1
     currentSession,
+    state,
     (t) => { state.transcriptDelivered = t; },
     () => { state.silenceCalled = true; },
-    (e) => { state.error = e; },
     () => { state.sessionClosed = true; },
-    () => { /* setIsListening */ },
   );
 
-  // Nothing should have happened — message is from old session
   assert.equal(state.transcriptDelivered, null, "stale session message must be ignored");
   assert.equal(state.sessionClosed, false);
 });
 
-test("Scribe: cleanup after committed transcript — second transcript delivery is a no-op", () => {
-  // Simulate two consecutive committed messages for the same session
+test("Scribe: cleanup after committed transcript — second delivery is a no-op", () => {
   const deliveries: string[] = [];
   const closeCalls: number[] = [];
   const currentSession = { value: 1 };
 
-  function deliver(msgJson: string) {
-    simulateScribeMessage(
-      msgJson,
-      { transcriptDelivered: null, silenceCalled: false, error: null, sessionClosed: false },
+  function deliver(text: string) {
+    simulateCommittedTranscript(
+      text,
       1,
       currentSession,
+      { transcriptDelivered: null, silenceCalled: false, error: null, sessionClosed: false },
       (t) => { deliveries.push(t); },
       () => { /* silence */ },
-      () => { /* error */ },
       () => {
         closeCalls.push(1);
-        // After teardown the session counter is incremented — simulate that here
+        // After disconnect the session counter is incremented — simulate that
         currentSession.value = 99;
       },
-      () => { /* setIsListening */ },
     );
   }
 
-  deliver(JSON.stringify({ type: "transcript", transcript_event: { type: "committed", text: "first command" } }));
-  deliver(JSON.stringify({ type: "transcript", transcript_event: { type: "committed", text: "second command" } }));
+  deliver("first command");
+  deliver("second command");
 
   assert.equal(deliveries.length, 1, "only one delivery should occur");
   assert.equal(deliveries[0], "first command");
-  assert.equal(closeCalls.length, 1, "teardown should only happen once");
+  assert.equal(closeCalls.length, 1, "disconnect should only happen once");
 });
 
 // ---------------------------------------------------------------------------
@@ -521,7 +466,6 @@ test("Scribe: cleanup after committed transcript — second transcript delivery 
 // ---------------------------------------------------------------------------
 
 test("routing — desktop UA routes to SR (not Scribe)", () => {
-  // Simulate routing logic
   function computeRoute(ua: string, maxTouchPoints: number): "scribe" | "sr" {
     const mobileUA = /Android|iPhone|iPad|iPod|IEMobile|WPDesktop|Opera Mini/i.test(ua);
     const mobile = maxTouchPoints > 0 && mobileUA;

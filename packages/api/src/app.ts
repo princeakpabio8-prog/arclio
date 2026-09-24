@@ -565,8 +565,10 @@ app.get("/api/voice/config", (_req, res) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/voice/scribe-token
-// Issues a single-use ElevenLabs Scribe v2 Realtime signed WebSocket URL.
-// The browser NEVER receives ELEVENLABS_API_KEY — only the time-limited URL.
+// Issues a single-use ElevenLabs Scribe v2 Realtime token (sutkn_...).
+// The browser NEVER receives ELEVENLABS_API_KEY — only the time-limited token.
+// The token is passed directly to the official @elevenlabs/client Scribe SDK
+// which knows the correct WebSocket URL internally.
 // ---------------------------------------------------------------------------
 
 app.post("/api/voice/scribe-token", async (_req, res) => {
@@ -594,19 +596,17 @@ app.post("/api/voice/scribe-token", async (_req, res) => {
       return;
     }
 
-    const data = await upstream.json() as { token?: string; signed_url?: string };
-    // Support both response shapes: { token } and { signed_url }
-    const signedUrl = data.signed_url ?? (data.token
-      ? `wss://api.elevenlabs.io/v1/speech-to-text/stream?token=${data.token}`
-      : undefined);
-    if (!signedUrl) {
-      console.error("[api] Scribe token response missing token/signed_url");
+    const data = await upstream.json() as { token?: string };
+    if (!data.token) {
+      console.error("[api] Scribe token response missing token field");
       res.status(502).json({ error: "Scribe token response missing token" });
       return;
     }
 
-    // Return ONLY the signed URL — the API key never leaves the server.
-    res.json({ signedUrl });
+    // Return ONLY the raw single-use token — the API key never leaves the server.
+    // The client SDK (Scribe.connect) uses this token directly; it resolves the
+    // WebSocket URL internally so we never need to construct or expose it.
+    res.json({ token: data.token });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[api] Scribe token fetch error:", msg);
