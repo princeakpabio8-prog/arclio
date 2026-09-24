@@ -90,23 +90,25 @@ async function makeScribeTokenHandler(
     }
     try {
       const upstream = await mockFetch(
-        "https://api.elevenlabs.io/v1/speech-to-text/streaming/create",
+        "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe",
         {
           method: "POST",
           headers: { "Content-Type": "application/json", "xi-api-key": apiKey },
-          body: JSON.stringify({ model_id: "scribe_v2_realtime" }),
         },
       );
       if (!upstream.ok) {
         res.status(502).json({ error: `ElevenLabs returned ${upstream.status}` });
         return;
       }
-      const data = await upstream.json() as { signed_url?: string };
-      if (!data.signed_url) {
-        res.status(502).json({ error: "Scribe token response missing signed_url" });
+      const data = await upstream.json() as { token?: string; signed_url?: string };
+      const signedUrl = data.signed_url ?? (data.token
+        ? `wss://api.elevenlabs.io/v1/speech-to-text/stream?token=${data.token}`
+        : undefined);
+      if (!signedUrl) {
+        res.status(502).json({ error: "Scribe token response missing token" });
         return;
       }
-      res.json({ signedUrl: data.signed_url });
+      res.json({ signedUrl });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(502).json({ error: "Scribe token request failed: " + msg });
@@ -171,22 +173,39 @@ test("scribe-token — 502 when upstream network throws", async () => {
   assert.match(body.error, /Scribe token request failed/);
 });
 
-test("scribe-token — 502 when response is missing signed_url", async () => {
+test("scribe-token — 502 when response is missing token and signed_url", async () => {
   const mockFetch: MockFetch = async () => ({
     ok: true,
     status: 200,
     text: async () => "{}",
-    json: async () => ({}), // no signed_url field
+    json: async () => ({}), // neither token nor signed_url field
   });
   const handler = await makeScribeTokenHandler("sk-key", "voice-id", mockFetch);
   const res = makeRes();
   await handler({ body: {} }, res);
   assert.equal(res.statusCode, 502);
   const body = res.jsonBody as { error: string };
-  assert.match(body.error, /missing signed_url/);
+  assert.match(body.error, /missing token/);
 });
 
-test("scribe-token — returns signedUrl on success", async () => {
+test("scribe-token — returns signedUrl on success with { token } response", async () => {
+  const token = "abc123";
+  const expectedUrl = `wss://api.elevenlabs.io/v1/speech-to-text/stream?token=${token}`;
+  const mockFetch: MockFetch = async () => ({
+    ok: true,
+    status: 200,
+    text: async () => "",
+    json: async () => ({ token }),
+  });
+  const handler = await makeScribeTokenHandler("sk-key", "voice-id", mockFetch);
+  const res = makeRes();
+  await handler({ body: {} }, res);
+  assert.equal(res.statusCode, 200);
+  const body = res.jsonBody as { signedUrl: string };
+  assert.equal(body.signedUrl, expectedUrl);
+});
+
+test("scribe-token — returns signedUrl on success with { signed_url } response", async () => {
   const expectedUrl = "wss://api.elevenlabs.io/v1/realtime?token=abc123";
   const mockFetch: MockFetch = async () => ({
     ok: true,

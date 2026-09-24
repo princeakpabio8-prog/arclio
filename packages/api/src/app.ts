@@ -577,14 +577,13 @@ app.post("/api/voice/scribe-token", async (_req, res) => {
 
   try {
     const upstream = await fetch(
-      "https://api.elevenlabs.io/v1/speech-to-text/streaming/create",
+      "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe",
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "xi-api-key": ELEVENLABS_API_KEY,
         },
-        body: JSON.stringify({ model_id: "scribe_v2_realtime" }),
       },
     );
 
@@ -595,15 +594,19 @@ app.post("/api/voice/scribe-token", async (_req, res) => {
       return;
     }
 
-    const data = await upstream.json() as { signed_url?: string };
-    if (!data.signed_url) {
-      console.error("[api] Scribe token response missing signed_url");
-      res.status(502).json({ error: "Scribe token response missing signed_url" });
+    const data = await upstream.json() as { token?: string; signed_url?: string };
+    // Support both response shapes: { token } and { signed_url }
+    const signedUrl = data.signed_url ?? (data.token
+      ? `wss://api.elevenlabs.io/v1/speech-to-text/stream?token=${data.token}`
+      : undefined);
+    if (!signedUrl) {
+      console.error("[api] Scribe token response missing token/signed_url");
+      res.status(502).json({ error: "Scribe token response missing token" });
       return;
     }
 
     // Return ONLY the signed URL — the API key never leaves the server.
-    res.json({ signedUrl: data.signed_url });
+    res.json({ signedUrl });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[api] Scribe token fetch error:", msg);
