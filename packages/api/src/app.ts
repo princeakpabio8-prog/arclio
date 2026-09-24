@@ -556,7 +556,59 @@ if (elevenlabsAvailable) {
 }
 
 app.get("/api/voice/config", (_req, res) => {
-  res.json({ elevenlabsAvailable, provider: elevenlabsAvailable ? "elevenlabs" : "browser" });
+  res.json({
+    elevenlabsAvailable,
+    provider: elevenlabsAvailable ? "elevenlabs" : "browser",
+    scribeAvailable: elevenlabsAvailable,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/voice/scribe-token
+// Issues a single-use ElevenLabs Scribe v2 Realtime signed WebSocket URL.
+// The browser NEVER receives ELEVENLABS_API_KEY — only the time-limited URL.
+// ---------------------------------------------------------------------------
+
+app.post("/api/voice/scribe-token", async (_req, res) => {
+  if (!elevenlabsAvailable) {
+    res.status(503).json({ error: "ElevenLabs STT is not configured on this server" });
+    return;
+  }
+
+  try {
+    const upstream = await fetch(
+      "https://api.elevenlabs.io/v1/speech-to-text/streaming/create",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "xi-api-key": ELEVENLABS_API_KEY,
+        },
+        body: JSON.stringify({ model_id: "scribe_v2_realtime" }),
+      },
+    );
+
+    if (!upstream.ok) {
+      const errBody = await upstream.text().catch(() => "");
+      console.error(`[api] Scribe token error ${upstream.status}: ${errBody}`);
+      res.status(502).json({ error: `ElevenLabs returned ${upstream.status}` });
+      return;
+    }
+
+    const data = await upstream.json() as { signed_url?: string };
+    if (!data.signed_url) {
+      console.error("[api] Scribe token response missing signed_url");
+      res.status(502).json({ error: "Scribe token response missing signed_url" });
+      return;
+    }
+
+    // Return ONLY the signed URL — the API key never leaves the server.
+    res.json({ signedUrl: data.signed_url });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[api] Scribe token fetch error:", msg);
+    res.status(502).json({ error: "Scribe token request failed: " + msg });
+  }
 });
 
 app.post("/api/voice/tts", async (req, res) => {

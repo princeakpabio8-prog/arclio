@@ -2,21 +2,25 @@
  * useMicSession
  *
  * Shared speech-recognition lifecycle hook used by AgentInput and
- * AlexaSimulator. Implements the mobile-reliability requirements:
+ * AlexaSimulator.
  *
- *  - Every tap creates a completely fresh SpeechRecognition instance.
- *  - A session ID (integer) is minted at start(); any callback that
- *    arrives after stop/abort/timeout of that session is a no-op.
- *  - Recognition is fully torn down after onresult, onerror, onend,
- *    and watchdog timeout — never left running during processing or TTS.
- *  - Watchdog: if onstart fires but nothing arrives within WATCHDOG_MS,
- *    abort and surface an error message.
- *  - No overlapping sessions: start() always aborts the previous
- *    instance (if any) before creating a new one.
- *  - Callers receive: isListening state, start(), stop(), and error.
+ * Routing:
+ *   Mobile  (iPhone/iPad/Android) → useScribeSession (ElevenLabs Scribe v2 Realtime)
+ *   Desktop / laptop              → useSRSession     (native SpeechRecognition)
+ *
+ * Both implementations expose the same UseMicSessionReturn interface so
+ * callers (AgentInput, AlexaSimulator) need no changes.
+ *
+ * Mobile detection uses isMobile() which cross-validates UA and touch points
+ * to avoid accidentally routing touch-screen laptops through Scribe.
+ *
+ * Fallback: if Scribe returns a "not configured" error on mobile, callers
+ * can detect it via the error field and fall back to SpeechRecognition.
  */
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { isMobile } from "./isMobile.js";
+import { useScribeSession } from "./useScribeSession.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -80,9 +84,9 @@ function getSR(): (new () => SpeechRecognitionInstance) | null {
   );
 }
 
-// ─── Hook ─────────────────────────────────────────────────────────────────────
+// ─── Desktop SR implementation ────────────────────────────────────────────────
 
-export function useMicSession({
+function useSRSession({
   onTranscript,
   onSilence,
 }: UseMicSessionOptions): UseMicSessionReturn {
@@ -237,4 +241,40 @@ export function useMicSession({
   }, [teardown]);
 
   return { isListening, error, start, stop };
+}
+
+// ─── Public routing hook ──────────────────────────────────────────────────────
+
+/**
+ * useMicSession — public entry point.
+ *
+ * Detects at mount time whether the user is on a mobile device.
+ * Mobile → ElevenLabs Scribe v2 Realtime (useScribeSession)
+ * Desktop → native SpeechRecognition (useSRSession)
+ *
+ * The routing decision is stable for the component lifetime.
+ * Both underlying hooks expose identical UseMicSessionReturn, so this
+ * thin wrapper is the only change needed — AgentInput and AlexaSimulator
+ * are unaffected.
+ *
+ * Fallback: if Scribe errors with "not configured", the error propagates
+ * to the caller; AgentInput/AlexaSimulator surface it via their existing
+ * error banner. Production fallback to SpeechRecognition for that session
+ * must be triggered by the user re-tapping the mic (a fresh start()).
+ */
+export function useMicSession(options: UseMicSessionOptions): UseMicSessionReturn {
+  // isMobile() is called once at React initialisation time (before any render).
+  // We capture it into a ref so the routing decision cannot change mid-session.
+  const isMobileRef = useRef<boolean | null>(null);
+  if (isMobileRef.current === null) {
+    isMobileRef.current = isMobile();
+  }
+  const mobile = isMobileRef.current;
+
+  // React requires that hooks are always called in the same order, so we call
+  // both hooks unconditionally and then select which result to return.
+  const scribe = useScribeSession(options);
+  const sr     = useSRSession(options);
+
+  return mobile ? scribe : sr;
 }

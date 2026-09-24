@@ -13,6 +13,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useMicSession } from "../useMicSession.js";
+import { isMobile } from "../isMobile.js";
 import { api } from "../api.js";
 import type { AgentResponse } from "../types.js";
 import {
@@ -522,7 +523,9 @@ export function AlexaSimulator() {
   // isSpeaking: TTS playing — purely cosmetic, does NOT gate response display
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [currentStage, setCurrentStage] = useState<StageKey>("understanding");
-  const [speechSupported] = useState(() => !!getSpeechRecognition());
+  // speechSupported: true if the browser supports SpeechRecognition (desktop)
+  // OR if we're on mobile (where Scribe v2 Realtime handles STT).
+  const [speechSupported] = useState(() => isMobile() || !!getSpeechRecognition());
   const [ttsSupported]    = useState(() => typeof window !== "undefined" && "speechSynthesis" in window);
   const [showAbout, setShowAbout] = useState(false);
 

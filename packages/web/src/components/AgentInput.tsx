@@ -7,6 +7,7 @@ import {
   type VoiceProvider,
 } from "../voice-provider.js";
 import { useMicSession } from "../useMicSession.js";
+import { isMobile } from "../isMobile.js";
 
 interface Props {
   onResponse: (r: AgentResponse & { query: string }) => void;
@@ -169,7 +170,9 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
-  const speechSupported = !!( typeof window !== "undefined" &&
+  // Show mic button if native SpeechRecognition is supported (desktop) OR
+  // if we're on mobile (where Scribe v2 Realtime handles STT instead).
+  const speechSupported = isMobile() || !!( typeof window !== "undefined" &&
     ((window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition ??
      (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition));
 
