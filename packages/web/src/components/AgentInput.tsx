@@ -6,6 +6,7 @@ import {
   BrowserVoiceProvider,
   type VoiceProvider,
 } from "../voice-provider.js";
+import { useMicSession } from "../useMicSession.js";
 
 interface Props {
   onResponse: (r: AgentResponse & { query: string }) => void;
@@ -13,33 +14,6 @@ interface Props {
   onError?: (err: Error) => void;
 }
 
-/** Speech recognition factory — same pattern as AlexaSimulator */
-type SpeechRecognitionInstance = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((event: { results: SpeechRecognitionResultList }) => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
-  onend: (() => void) | null;
-  start(): void;
-  stop(): void;
-  abort(): void;
-};
-
-function getSpeechRecognition(): (new () => SpeechRecognitionInstance) | null {
-  if (typeof window === "undefined") return null;
-  return (
-    (window as Window & { SpeechRecognition?: new () => SpeechRecognitionInstance; webkitSpeechRecognition?: new () => SpeechRecognitionInstance }).SpeechRecognition ??
-    (window as Window & { webkitSpeechRecognition?: new () => SpeechRecognitionInstance }).webkitSpeechRecognition ??
-    null
-  );
-}
-
-/**
- * Suggestion chips shown below the input on first load.
- * All five primary intents are represented so new users immediately
- * understand what they can ask — on every screen size.
- */
 const SUGGESTIONS = [
   "Give me my business briefing.",
   "What needs my attention?",
@@ -48,24 +22,26 @@ const SUGGESTIONS = [
   "Handle the Acme delivery.",
 ];
 
-type MicState = "idle" | "listening" | "processing" | "speaking";
-
-/** Milliseconds to wait after onstart before treating recognition as hung. */
-const MIC_WATCHDOG_MS = 8_000;
+// ── TTS safety timeout for ElevenLabs (ms) ───────────────────────────────────
+// If the audio onended event never fires, we fall back to idle after this long.
+// 15 s is enough for any response length. BrowserVoiceProvider has its own
+// internal safety timer; this covers ElevenLabs.
+const TTS_SAFETY_MS = 15_000;
 
 export function AgentInput({ onResponse, onLoading, onError }: Props) {
-  const [query, setQuery]         = useState("");
-  const [loading, setLoading]     = useState(false);
-  const [error, setError]         = useState<string | null>(null);
-  const [micState, setMicState]   = useState<MicState>("idle");
-  const inputRef        = useRef<HTMLInputElement>(null);
-  const recognitionRef  = useRef<SpeechRecognitionInstance | null>(null);
-  const micWatchdogRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const voiceRef        = useRef<VoiceProvider>(new BrowserVoiceProvider());
+  const [query, setQuery]       = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+  // isSpeaking is purely cosmetic — the send-button icon changes, and the
+  // mic is blocked while TTS plays. It does NOT gate whether the response
+  // is visible or whether the agent is considered "done".
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
-  const speechSupported = !!getSpeechRecognition();
+  const inputRef    = useRef<HTMLInputElement>(null);
+  const voiceRef    = useRef<VoiceProvider>(new BrowserVoiceProvider());
+  const ttsSafetyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Bootstrap voice provider — probe ElevenLabs availability
+  // Bootstrap voice provider — probe ElevenLabs availability once on mount.
   useEffect(() => {
     fetch("/api/voice/config")
       .then((r) => (r.ok ? r.json() : null))
@@ -74,72 +50,80 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
           voiceRef.current = createVoiceProvider("elevenlabs", true);
         }
       })
-      .catch(() => {/* stay with browser TTS */});
+      .catch(() => { /* stay with browser TTS */ });
   }, []);
 
-  // Cleanup on unmount
+  // Cleanup on unmount.
   useEffect(() => () => {
-    clearMicWatchdog();
-    recognitionRef.current?.abort();
-    recognitionRef.current = null;
+    if (ttsSafetyRef.current) clearTimeout(ttsSafetyRef.current);
     voiceRef.current.stopSpeaking();
   }, []);
 
-  function clearMicWatchdog() {
-    if (micWatchdogRef.current !== null) {
-      clearTimeout(micWatchdogRef.current);
-      micWatchdogRef.current = null;
-    }
+  // ── TTS helpers ─────────────────────────────────────────────────────────────
+
+  function stopTts() {
+    if (ttsSafetyRef.current) { clearTimeout(ttsSafetyRef.current); ttsSafetyRef.current = null; }
+    voiceRef.current.stopSpeaking();
+    setIsSpeaking(false);
   }
 
-  /** Abort any existing recognition instance and clear its handlers. */
-  function abortRecognition() {
-    clearMicWatchdog();
-    const prev = recognitionRef.current;
-    if (prev) {
-      prev.onresult = null;
-      prev.onerror  = null;
-      prev.onend    = null;
-      try { prev.abort(); } catch { /* ignore */ }
-      recognitionRef.current = null;
-    }
+  function speakResponse(text: string) {
+    // Cap text length and strip to first 490 chars for ElevenLabs proxy limit.
+    const speakText = text.length > 490 ? text.slice(0, 489) + "…" : text;
+
+    setIsSpeaking(true);
+
+    // Safety net: if TTS never calls back (ElevenLabs timeout, audio error,
+    // browser synthesis stall), return to idle after TTS_SAFETY_MS.
+    if (ttsSafetyRef.current) clearTimeout(ttsSafetyRef.current);
+    ttsSafetyRef.current = setTimeout(() => {
+      ttsSafetyRef.current = null;
+      setIsSpeaking(false);
+    }, TTS_SAFETY_MS);
+
+    voiceRef.current.speakText(speakText, () => {
+      if (ttsSafetyRef.current) { clearTimeout(ttsSafetyRef.current); ttsSafetyRef.current = null; }
+      setIsSpeaking(false);
+    });
   }
+
+  // ── Agent submit ─────────────────────────────────────────────────────────────
 
   async function submit(q: string) {
     const trimmed = q.trim();
-    if (!trimmed || loading || micState === "processing") return;
+    if (!trimmed || loading) return;
 
-    // Prime the speech engine synchronously inside the gesture.
-    // On iOS Safari, speechSynthesis.speak() MUST be called while the JS
-    // call stack is still inside a user-gesture handler. primeForPlayback()
-    // speaks a silent unlock utterance right now; speakText() will cancel it
-    // and speak the real text. This MUST come first — any cancel() before it
-    // would kill the unlock utterance.
+    // Stop TTS if Arclio was still speaking from a previous response.
+    stopTts();
+
+    // Prime the speech engine synchronously inside the gesture (before await).
+    // BrowserVoiceProvider.primeForPlayback() speaks a silent utterance here
+    // to unlock speechSynthesis on iOS/Android. ElevenLabsVoiceProvider
+    // creates a pre-unlocked Audio element. Both must happen before any await.
     voiceRef.current.primeForPlayback?.();
 
     setLoading(true);
-    setMicState("processing");
     setError(null);
     onLoading?.();
 
     try {
       const response = await api.agent(trimmed);
+
+      // ── Spec item 3: display response BEFORE starting TTS ─────────────────
+      // onResponse updates the parent UI immediately. TTS is independent.
       onResponse({ ...response, query: trimmed });
       setQuery("");
+      setLoading(false);
+      inputRef.current?.focus();
 
-      // Speak the response
-      setMicState("speaking");
-      const speakText = response.answer.length > 490
-        ? response.answer.slice(0, 489) + "…"
-        : response.answer;
-      voiceRef.current.speakText(speakText, () => setMicState("idle"));
+      // Start TTS after UI is updated. If it fails or hangs, the response
+      // is already visible and the safety timer returns us to idle.
+      speakResponse(response.answer);
     } catch (err) {
+      setLoading(false);
       const e = err instanceof Error ? err : new Error(String(err));
       setError(e.message);
       onError?.(e);
-      setMicState("idle");
-    } finally {
-      setLoading(false);
       inputRef.current?.focus();
     }
   }
@@ -148,86 +132,48 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(query); }
   }
 
-  function startListening() {
-    const SR = getSpeechRecognition();
-    if (!SR || micState !== "idle") return;
+  // ── Mic session ──────────────────────────────────────────────────────────────
 
-    voiceRef.current.stopSpeaking();
+  const mic = useMicSession({
+    onTranscript: (transcript) => {
+      // transcript arrived → submit it. primeForPlayback is called inside
+      // submit(); onTranscript is fired from a recognition event callback
+      // which is NOT a user gesture on mobile, so the unlock utterance in
+      // BrowserVoiceProvider.primeForPlayback() is the critical path here.
+      setQuery(transcript);
+      submit(transcript);
+    },
+  });
 
-    // iOS audio unlock before async gesture chain
-    voiceRef.current.primeForPlayback?.();
-
-    // Always discard any previous (potentially stale/hung) instance first.
-    abortRecognition();
-
-    setMicState("listening");
-
-    const recognition = new SR();
-    recognitionRef.current = recognition;
-    recognition.continuous     = false;
-    recognition.interimResults = false;
-    recognition.lang           = "en-US";
-
-    // onstart: recognition session opened — start the watchdog.
-    // On iOS WebKit after video playback the session can open but then
-    // silently hang without ever producing onresult/onerror/onend.
-    // The watchdog detects this and resets to idle with a user message.
-    (recognition as SpeechRecognitionInstance & { onstart?: (() => void) | null }).onstart = () => {
-      clearMicWatchdog();
-      micWatchdogRef.current = setTimeout(() => {
-        // Recognition started but nothing came back — treat as failure.
-        abortRecognition();
-        setMicState("idle");
-        setError("Voice input isn't available right now. Try again.");
-      }, MIC_WATCHDOG_MS);
-    };
-
-    recognition.onresult = (event) => {
-      clearMicWatchdog();
-      const transcript = event.results[0]?.[0]?.transcript ?? "";
-      if (transcript.trim()) {
-        setQuery(transcript);
-        submit(transcript);
-      } else {
-        setMicState("idle");
-      }
-    };
-
-    recognition.onerror = (event) => {
-      clearMicWatchdog();
-      // Surface actionable messages for permission-denied or no-speech.
-      const code = (event as { error?: string }).error ?? "";
-      if (code === "not-allowed" || code === "service-not-allowed") {
-        setError("Microphone access was denied. Please allow it in Settings.");
-      } else if (code !== "no-speech" && code !== "aborted") {
-        setError("Voice input isn't available right now. Try again.");
-      }
-      setMicState("idle");
-    };
-
-    recognition.onend = () => {
-      clearMicWatchdog();
-      setMicState((prev) => (prev === "listening" ? "idle" : prev));
-    };
-
-    try { recognition.start(); }
-    catch {
-      abortRecognition();
-      setMicState("idle");
-      setError("Voice input isn't available right now. Try again.");
+  // When the user taps the mic button: stop TTS, prime the speech engine,
+  // then start recognition. Order matters:
+  //   1. stopTts()                  — cancel any current audio
+  //   2. primeForPlayback()         — unlock speechSynthesis in this gesture
+  //   3. mic.start()                — create fresh recognition instance
+  function handleMicTap() {
+    if (mic.isListening) {
+      mic.stop();
+      return;
     }
+    if (loading || isSpeaking) return;
+
+    stopTts();
+    voiceRef.current.primeForPlayback?.();
+    mic.start();
   }
 
-  function stopListening() {
-    abortRecognition();
-    if (micState === "listening") setMicState("idle");
-  }
+  // Surface recognition errors in the same error banner as agent errors.
+  useEffect(() => {
+    if (mic.error) setError(mic.error);
+  }, [mic.error]);
 
-  const isBusy  = loading || micState === "processing" || micState === "speaking";
-  const isListening = micState === "listening";
+  // ── Render ───────────────────────────────────────────────────────────────────
 
-  // Mic button aria label
-  const micLabel = isListening ? "Stop listening" : "Speak to Arclio";
+  const speechSupported = !!( typeof window !== "undefined" &&
+    ((window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition ??
+     (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition));
+
+  const isBusy = loading || isSpeaking;
 
   return (
     <div className="command-section">
@@ -247,26 +193,23 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKey}
-          disabled={isBusy}
-          // No autoFocus — on mobile the keyboard must not open automatically
+          disabled={loading || mic.isListening}
         />
 
-        {/* Microphone button — shown only if speech is supported */}
+        {/* Microphone button */}
         {speechSupported && (
           <button
-            className={`command-mic${isListening ? " command-mic--listening" : ""}`}
-            onClick={isListening ? stopListening : startListening}
-            disabled={isBusy && !isListening}
-            aria-label={micLabel}
+            className={`command-mic${mic.isListening ? " command-mic--listening" : ""}`}
+            onClick={handleMicTap}
+            disabled={isBusy && !mic.isListening}
+            aria-label={mic.isListening ? "Stop listening" : "Speak to Arclio"}
             type="button"
           >
-            {isListening ? (
-              /* Animated stop indicator */
+            {mic.isListening ? (
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <rect x="6" y="6" width="12" height="12" rx="2" />
               </svg>
             ) : (
-              /* Microphone */
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
                 <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
@@ -285,8 +228,7 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
           aria-label="Send"
           type="button"
         >
-          {micState === "speaking" ? (
-            /* Speaking indicator */
+          {isSpeaking ? (
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
               <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
@@ -302,7 +244,7 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
       </div>
 
       {/* Listening indicator */}
-      {isListening && (
+      {mic.isListening && (
         <div className="command-listening" role="status" aria-live="polite">
           <span className="command-listening-dot" aria-hidden="true" />
           <span className="command-listening-dot" aria-hidden="true" />
@@ -320,7 +262,7 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
               key={text}
               className="suggestion-chip"
               onClick={() => submit(text)}
-              disabled={isBusy}
+              disabled={isBusy || mic.isListening}
             >
               {text}
             </button>

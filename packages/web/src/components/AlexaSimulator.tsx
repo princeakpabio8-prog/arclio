@@ -12,6 +12,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useMicSession } from "../useMicSession.js";
 import { api } from "../api.js";
 import type { AgentResponse } from "../types.js";
 import {
@@ -508,10 +509,18 @@ function VoiceWaveform({ active }: { active: boolean }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+// TTS safety timeout (ms). If TTS never calls back, return to idle.
+// 15 s covers any response length. BrowserVoiceProvider has its own
+// internal safety timer; this extra layer covers ElevenLabs network delays.
+const ALEXA_TTS_SAFETY_MS = 15_000;
+
 export function AlexaSimulator() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [textInput, setTextInput] = useState("");
-  const [micState, setMicState] = useState<MicState>("idle");
+  // isProcessing: agent call in flight
+  const [isProcessing, setIsProcessing] = useState(false);
+  // isSpeaking: TTS playing — purely cosmetic, does NOT gate response display
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [currentStage, setCurrentStage] = useState<StageKey>("understanding");
   const [speechSupported] = useState(() => !!getSpeechRecognition());
   const [ttsSupported]    = useState(() => typeof window !== "undefined" && "speechSynthesis" in window);
@@ -521,26 +530,25 @@ export function AlexaSimulator() {
   const [elevenlabsAvailable, setElevenlabsAvailable] = useState(false);
   const [voiceProviderType, setVoiceProviderType] = useState<VoiceProviderType>("browser");
   const [elevenLabsFallback, setElevenLabsFallback] = useState(false);
-  const voiceProviderRef = useRef<VoiceProvider>(new BrowserVoiceProvider());
+  const voiceProviderRef     = useRef<VoiceProvider>(new BrowserVoiceProvider());
+  // Ref mirror of voiceProviderType so the stable sendQuery callback always
+  // reads the current provider type without capturing stale state.
+  const voiceProviderTypeRef = useRef<VoiceProviderType>("browser");
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ttsSafetyRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const recognitionRef  = useRef<SpeechRecognitionInstance | null>(null);
-  const micWatchdogRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stageTimersRef  = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const bottomRef       = useRef<HTMLDivElement>(null);
-  const inputRef        = useRef<HTMLInputElement>(null);
+  const stageTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const bottomRef      = useRef<HTMLDivElement>(null);
+  const inputRef       = useRef<HTMLInputElement>(null);
 
   // Probe server for ElevenLabs availability on mount.
-  // When ElevenLabs is configured server-side, automatically select it as the
-  // active provider so it is the default — not browser TTS.
-  // Browser TTS remains the fallback for when ElevenLabs is unavailable or fails.
   useEffect(() => {
     fetch("/api/voice/config")
       .then((r) => r.ok ? r.json() : null)
       .then((data: { elevenlabsAvailable?: boolean } | null) => {
         if (data?.elevenlabsAvailable) {
           setElevenlabsAvailable(true);
-          setVoiceProviderType("elevenlabs"); // ElevenLabs is default when configured
+          setVoiceProviderType("elevenlabs");
         }
       })
       .catch(() => { /* server offline — browser voice is already the default */ });
@@ -553,7 +561,7 @@ export function AlexaSimulator() {
     fallbackTimerRef.current = setTimeout(() => setElevenLabsFallback(false), 4000);
   }, []);
 
-  // Re-create provider when type or availability changes
+  // Re-create provider when type or availability changes; keep the ref mirror in sync.
   useEffect(() => {
     voiceProviderRef.current.stopSpeaking();
     voiceProviderRef.current = createVoiceProvider(
@@ -561,6 +569,7 @@ export function AlexaSimulator() {
       elevenlabsAvailable,
       handleElevenLabsFallback,
     );
+    voiceProviderTypeRef.current = voiceProviderType;
   }, [voiceProviderType, elevenlabsAvailable, handleElevenLabsFallback]);
 
   // Auto-scroll to bottom on new messages
@@ -568,36 +577,50 @@ export function AlexaSimulator() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Cleanup timers and recognition on unmount
+  // Cleanup on unmount
   useEffect(() => () => {
     stageTimersRef.current.forEach(clearTimeout);
     if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
-    clearMicWatchdog();
-    recognitionRef.current?.abort();
-    recognitionRef.current = null;
+    if (ttsSafetyRef.current) clearTimeout(ttsSafetyRef.current);
     voiceProviderRef.current.stopSpeaking();
     stopBrowserSpeaking();
   }, []);
 
-  function clearMicWatchdog() {
-    if (micWatchdogRef.current !== null) {
-      clearTimeout(micWatchdogRef.current);
-      micWatchdogRef.current = null;
-    }
+  // ── TTS helpers ─────────────────────────────────────────────────────────────
+
+  function stopTts() {
+    if (ttsSafetyRef.current) { clearTimeout(ttsSafetyRef.current); ttsSafetyRef.current = null; }
+    voiceProviderRef.current.stopSpeaking();
+    setIsSpeaking(false);
   }
 
-  /** Abort any existing recognition instance and clear its handlers. */
-  function abortRecognition() {
-    clearMicWatchdog();
-    const prev = recognitionRef.current;
-    if (prev) {
-      prev.onresult = null;
-      prev.onerror  = null;
-      prev.onend    = null;
-      try { prev.abort(); } catch { /* ignore */ }
-      recognitionRef.current = null;
-    }
+  function speakResponse(text: string) {
+    // Read current provider type from ref so this function is safe to call
+    // from inside the stable sendQuery useCallback without a stale closure.
+    const providerType = voiceProviderTypeRef.current;
+    const canSpeak = ttsSupported || providerType === "elevenlabs";
+    if (!canSpeak) return;
+
+    const cleaned = toVoiceText(text);
+    const voiceText = providerType === "elevenlabs" && cleaned.length > 490
+      ? cleaned.slice(0, 489) + "…"
+      : cleaned;
+
+    setIsSpeaking(true);
+
+    if (ttsSafetyRef.current) clearTimeout(ttsSafetyRef.current);
+    ttsSafetyRef.current = setTimeout(() => {
+      ttsSafetyRef.current = null;
+      setIsSpeaking(false);
+    }, ALEXA_TTS_SAFETY_MS);
+
+    voiceProviderRef.current.speakText(voiceText, () => {
+      if (ttsSafetyRef.current) { clearTimeout(ttsSafetyRef.current); ttsSafetyRef.current = null; }
+      setIsSpeaking(false);
+    });
   }
+
+  // ── Stage animation ──────────────────────────────────────────────────────────
 
   function clearStageTimers() {
     stageTimersRef.current.forEach(clearTimeout);
@@ -617,31 +640,28 @@ export function AlexaSimulator() {
     stageTimersRef.current.push(doneTimer);
   }
 
+  // ── sendQuery ────────────────────────────────────────────────────────────────
+  // useCallback with NO deps on micState/isSpeaking/isProcessing — those are
+  // read via refs inside the async body where needed, not via stale closures.
+
   const sendQuery = useCallback(async (query: string) => {
     const trimmed = query.trim();
-    if (!trimmed || micState === "processing") return;
+    if (!trimmed) return;
 
-    // Stop any ongoing TTS
-    voiceProviderRef.current.stopSpeaking();
+    // Stop TTS before starting a new query.
+    stopTts();
 
-    // ── iOS Audio Unlock ──────────────────────────────────────────────────────
-    // Call primeForPlayback() synchronously HERE, while we are still inside
-    // the user gesture call stack (button tap / form submit).
-    // This pre-creates and unlocks the Audio element on iOS Safari so that
-    // ElevenLabsVoiceProvider.speakText() — which runs after an `await` —
-    // can reuse the already-permitted audio element.
+    // Prime the speech engine synchronously inside the gesture call stack.
+    // Must be called before any await — see voice-provider.ts for details.
     voiceProviderRef.current.primeForPlayback?.();
-    // ─────────────────────────────────────────────────────────────────────────
 
-    // Add user message
+    // Build messages
     const userMsg: Message = {
       id: uid(),
       role: "user",
       text: trimmed,
       timestamp: new Date(),
     };
-
-    // Add thinking placeholder for Arclio
     const thinkingId = uid();
     const thinkingMsg: Message = {
       id: thinkingId,
@@ -653,12 +673,9 @@ export function AlexaSimulator() {
 
     setMessages((prev) => [...prev, userMsg, thinkingMsg]);
     setTextInput("");
-    setMicState("processing");
+    setIsProcessing(true);
 
-    advanceStages(() => {
-      // Stage animation completes — but real API call may still be pending
-      // (state update is fine; message will update once API returns)
-    });
+    advanceStages(() => { /* stage animation — state updates are fine async */ });
 
     try {
       const response = await api.agent(trimmed);
@@ -668,36 +685,21 @@ export function AlexaSimulator() {
       clearStageTimers();
       setCurrentStage("done");
 
+      // ── Spec item 3: update messages BEFORE starting TTS ──────────────────
+      // The response is visible immediately. TTS is fire-and-forget.
       setMessages((prev) =>
         prev.map((m) =>
           m.id === thinkingId
-            ? {
-                ...m,
-                text: response.answer,
-                agentData: response,
-                toolCards,
-                stage: "done",
-                confirmed: isAction && response.verification === "passed",
-              }
+            ? { ...m, text: response.answer, agentData: response, toolCards, stage: "done",
+                confirmed: isAction && response.verification === "passed" }
             : m,
         ),
       );
+      setIsProcessing(false);
 
-      // Speak the answer via the active voice provider.
-      // Always run through toVoiceText() first to strip labels,
-      // markdown, and structured formatting into natural speech.
-      const canSpeak = ttsSupported || voiceProviderType === "elevenlabs";
-      if (canSpeak) {
-        setMicState("speaking");
-        const cleaned = toVoiceText(response.answer);
-        // ElevenLabs has a 500-char proxy limit; browser TTS handles any length.
-        const voiceText = voiceProviderType === "elevenlabs" && cleaned.length > 490
-          ? cleaned.slice(0, 489) + "…"
-          : cleaned;
-        voiceProviderRef.current.speakText(voiceText, () => setMicState("idle"));
-      } else {
-        setMicState("idle");
-      }
+      // TTS starts after UI is updated — safe to fail without affecting display.
+      speakResponse(response.answer);
+
     } catch (err) {
       clearStageTimers();
       setCurrentStage("done");
@@ -707,19 +709,20 @@ export function AlexaSimulator() {
       setMessages((prev) =>
         prev.map((m) =>
           m.id === thinkingId
-            ? {
-                ...m,
+            ? { ...m,
                 text: isOffline
                   ? "I'm unable to connect to Arclio right now. Please make sure the API server is running."
                   : `I encountered an issue: ${message}`,
-                stage: "done",
-              }
+                stage: "done" }
             : m,
         ),
       );
-      setMicState("idle");
+      setIsProcessing(false);
     }
-  }, [micState, ttsSupported, voiceProviderType]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // stable — voiceProviderRef/ttsSafetyRef are refs, not state
+
+  // ── Text input handlers ──────────────────────────────────────────────────────
 
   function handleTextSubmit(e?: React.FormEvent) {
     e?.preventDefault();
@@ -727,75 +730,33 @@ export function AlexaSimulator() {
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleTextSubmit();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleTextSubmit(); }
   }
 
-  function startListening() {
-    const SR = getSpeechRecognition();
-    if (!SR || micState !== "idle") return;
+  // ── Mic session (shared hook) ────────────────────────────────────────────────
 
-    voiceProviderRef.current.stopSpeaking();
+  const mic = useMicSession({
+    onTranscript: (transcript) => {
+      // Transcript received — primeForPlayback will be called inside sendQuery.
+      sendQuery(transcript);
+    },
+  });
 
-    // Always discard any previous (potentially stale/hung) instance first.
-    abortRecognition();
-
-    setMicState("listening");
-
-    const recognition = new SR();
-    recognitionRef.current = recognition;
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
-
-    // onstart: recognition session opened — start the watchdog.
-    // On iOS WebKit after video playback the session can open but then
-    // silently hang without ever producing onresult/onerror/onend.
-    (recognition as SpeechRecognitionInstance & { onstart?: (() => void) | null }).onstart = () => {
-      clearMicWatchdog();
-      micWatchdogRef.current = setTimeout(() => {
-        abortRecognition();
-        setMicState("idle");
-      }, 8_000);
-    };
-
-    recognition.onresult = (event) => {
-      clearMicWatchdog();
-      const transcript = event.results[0]?.[0]?.transcript ?? "";
-      if (transcript.trim()) {
-        sendQuery(transcript);
-      } else {
-        setMicState("idle");
-      }
-    };
-
-    recognition.onerror = () => {
-      clearMicWatchdog();
-      setMicState("idle");
-    };
-
-    recognition.onend = () => {
-      clearMicWatchdog();
-      // Reset to idle after recognition ends (unless we already moved to processing)
-      setMicState((prev) => prev === "listening" ? "idle" : prev);
-    };
-
-    try {
-      recognition.start();
-    } catch {
-      abortRecognition();
-      setMicState("idle");
-    }
+  // Mic button tap handler: stop TTS → prime speech engine → start listening.
+  function handleMicTap() {
+    if (mic.isListening) { mic.stop(); return; }
+    if (isProcessing || isSpeaking) return;
+    stopTts();
+    voiceProviderRef.current.primeForPlayback?.();
+    mic.start();
   }
 
-  function stopListening() {
-    abortRecognition();
-    if (micState === "listening") setMicState("idle");
-  }
-
-  const isBusy = micState === "listening" || micState === "processing" || micState === "speaking";
+  const isBusy = mic.isListening || isProcessing || isSpeaking;
+  // Derive a single micState string for the existing mic-button CSS classes.
+  const micState: MicState = mic.isListening ? "listening"
+    : isProcessing ? "processing"
+    : isSpeaking   ? "speaking"
+    : "idle";
 
   return (
     <div className="alexa-shell">
@@ -984,7 +945,7 @@ export function AlexaSimulator() {
 
             <button
               className={`alexa-mic-btn alexa-mic-btn--${micState}`}
-              onClick={micState === "listening" ? stopListening : startListening}
+              onClick={handleMicTap}
               disabled={micState === "processing" || !speechSupported}
               aria-label={micState === "listening" ? "Stop listening" : "Start voice input"}
               title={speechSupported ? undefined : "Voice input not supported in this browser"}
