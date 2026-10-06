@@ -179,12 +179,8 @@ html, body, #root {
 }
 
 .sidebar-logo-icon svg {
-  width: 15px;
-  height: 15px;
-  stroke: #fff;
-  fill: none;
-  stroke-width: 2.2;
-  stroke-linecap: round;
+  width: 18px;
+  height: 18px;
 }
 
 .sidebar-brand-text {
@@ -1896,12 +1892,8 @@ html, body, #root {
 }
 
 .mobile-topbar-logo svg {
-  width: 13px;
-  height: 13px;
-  stroke: #fff;
-  fill: none;
-  stroke-width: 2.2;
-  stroke-linecap: round;
+  width: 16px;
+  height: 16px;
 }
 
 /* ─────────────────────────────────────────────
@@ -2149,12 +2141,8 @@ html, body, #root {
 }
 
 .ai-brand-logo svg {
-  width: 17px;
-  height: 17px;
-  stroke: #fff;
-  fill: none;
-  stroke-width: 2.2;
-  stroke-linecap: round;
+  width: 20px;
+  height: 20px;
 }
 
 .ai-brand-name {

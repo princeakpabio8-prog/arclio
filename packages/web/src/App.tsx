@@ -171,8 +171,10 @@ export default function App() {
             </button>
             <div className="mobile-topbar-brand">
               <div className="mobile-topbar-logo">
-                <svg viewBox="0 0 24 24">
-                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M4 26 C4 26 8 6 16 4 C24 2 28 26 28 26" stroke="rgba(255,255,255,0.55)" strokeWidth="3.5" strokeLinecap="round" fill="none"/>
+                  <path d="M8 26 C8 26 11 11 16 10 C21 9 24 26 24 26" stroke="rgba(255,255,255,0.9)" strokeWidth="3.5" strokeLinecap="round" fill="none"/>
+                  <path d="M13.5 10.5 C14.2 7.5 17.8 7.5 18.5 10.5" stroke="#d4a84b" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
                 </svg>
               </div>
               Arclio

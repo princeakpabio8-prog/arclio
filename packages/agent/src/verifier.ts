@@ -87,6 +87,14 @@ function successDetail(result: ToolResult): string {
       }
       return "Notification send failed.";
     }
+    case "get_recent_emails": {
+      const emails = data["emails"] as unknown[] | undefined;
+      return `Retrieved ${emails?.length ?? 0} recent email(s).`;
+    }
+    case "get_important_emails": {
+      const emails = data["emails"] as unknown[] | undefined;
+      return `Retrieved ${emails?.length ?? 0} important/unread email(s).`;
+    }
     default:
       return "OK";
   }

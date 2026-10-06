@@ -62,6 +62,7 @@ import type {
   ActivityItem,
   ProcurementNotification,
   AgentResponse,
+  GmailEmail,
 } from "./types.js";
 
 export const api = {
@@ -72,4 +73,9 @@ export const api = {
   activity: () => get<{ activity: ActivityItem[] }>("/api/activity"),
   notifications: () => get<{ notifications: ProcurementNotification[] }>("/api/notifications"),
   agent: (query: string) => post<AgentResponse>("/api/agent", { query }),
+  gmail: () => get<{ count: number; emails: GmailEmail[] }>("/api/gmail"),
+  gmailRecent: (limit?: number) =>
+    get<{ count: number; emails: GmailEmail[] }>(
+      `/api/gmail/recent${limit !== undefined ? `?limit=${limit}` : ""}`,
+    ),
 };

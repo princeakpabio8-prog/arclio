@@ -34,7 +34,6 @@ const sessions = new Map<
 >();
 
 function createSession(): {
-  id: string;
   server: McpServer;
   transport: StreamableHTTPServerTransport;
 } {
@@ -65,7 +64,7 @@ function createSession(): {
 
   server.connect(transport);
 
-  return { id: "", server, transport };
+  return { server, transport };
 }
 
 // ---------------------------------------------------------------------------

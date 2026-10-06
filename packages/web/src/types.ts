@@ -50,6 +50,17 @@ export interface DashboardData {
   recentSecurity: Array<{ id: string; timestamp: string; type: string; description: string; location: string }>;
 }
 
+export interface GmailEmail {
+  id: string;
+  subject: string;
+  from: string;
+  receivedAt: string;
+  snippet: string;
+  isRead: boolean;
+  importance: "high" | "normal" | "low";
+  labels: string[];
+}
+
 export interface ProcurementNotification {
   id: string;
   sentAt: string;
