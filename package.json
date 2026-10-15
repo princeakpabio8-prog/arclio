@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
+    "build": "npm run build --workspace=packages/mcp-server && npm run build --workspace=packages/agent && npm run build --workspace=packages/api && npm run build --workspace=packages/web",
     "dev": "concurrently --names \"mcp,api,web\" --prefix-colors \"yellow,cyan,magenta\" --kill-others-on-fail \"npm run dev:server\" \"npm run dev:api\" \"npm run dev:web\"",
     "dev:server": "npm run dev --workspace=packages/mcp-server",
     "dev:agent": "npm run dev --workspace=packages/agent",

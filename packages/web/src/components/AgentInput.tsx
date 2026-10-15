@@ -9,6 +9,9 @@ import {
 import { useMicSession } from "../useMicSession.js";
 import { isMobile } from "../isMobile.js";
 
+// Cached once at module load — the value never changes during a session.
+const IS_MOBILE = isMobile();
+
 interface Props {
   onResponse: (r: AgentResponse & { query: string }) => void;
   onLoading?: () => void;
@@ -69,6 +72,13 @@ export function AgentInput({ onResponse, onLoading, onError }: Props) {
   }
 
   function speakResponse(text: string) {
+    // On mobile, browser SpeechSynthesis is unreliable after an async gap:
+    // the gesture-token expires before speakText() runs, so speak() is silently
+    // blocked by iOS/Android.  ElevenLabsVoiceProvider uses a pre-unlocked
+    // HTMLAudioElement and is not affected.  Skip browser TTS on mobile to
+    // avoid a silent hang; text is already visible in the response panel.
+    if (IS_MOBILE && voiceRef.current.type === "browser") return;
+
     // Cap text length and strip to first 490 chars for ElevenLabs proxy limit.
     const speakText = text.length > 490 ? text.slice(0, 489) + "…" : text;
 

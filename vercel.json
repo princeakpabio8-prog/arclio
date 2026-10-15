@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "npm run build --workspace=packages/agent && npm run build --workspace=packages/mcp-server && npm run build --workspace=packages/api && npm run build --workspace=packages/web",
+  "buildCommand": "npm run build --workspace=packages/mcp-server && npm run build --workspace=packages/agent && npm run build --workspace=packages/api && npm run build --workspace=packages/web",
   "outputDirectory": "packages/web/dist",
   "framework": null,
   "functions": {

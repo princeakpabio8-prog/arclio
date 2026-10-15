@@ -23,6 +23,9 @@ import {
   type VoiceProviderType,
 } from "../voice-provider.js";
 
+// Cached once at module load — the value never changes during a session.
+const IS_MOBILE = isMobile();
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type MicState = "idle" | "listening" | "processing" | "speaking";
@@ -603,6 +606,13 @@ export function AlexaSimulator() {
     const providerType = voiceProviderTypeRef.current;
     const canSpeak = ttsSupported || providerType === "elevenlabs";
     if (!canSpeak) return;
+
+    // On mobile, browser SpeechSynthesis is unreliable after an async gap:
+    // the gesture-token expires before speakText() runs, so speak() is silently
+    // blocked by iOS/Android.  ElevenLabsVoiceProvider uses a pre-unlocked
+    // HTMLAudioElement and is not affected.  Skip browser TTS on mobile to
+    // avoid a silent hang; text is already visible in the message thread.
+    if (IS_MOBILE && providerType === "browser") return;
 
     const cleaned = toVoiceText(text);
     const voiceText = providerType === "elevenlabs" && cleaned.length > 490
