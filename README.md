@@ -142,9 +142,11 @@ Voice responses use two layers:
 | Layer | When used |
 |---|---|
 | **ElevenLabs** | When `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` are configured. Low-latency streaming TTS via `eleven_flash_v2_5` (default model). |
-| **Browser SpeechSynthesis** | Fallback when ElevenLabs is not configured, or if ElevenLabs returns an error. Zero cost, no API key required. |
+| **Browser SpeechSynthesis** | Desktop fallback when ElevenLabs is not configured, or if ElevenLabs returns an error. Zero cost, no API key required. Not used on mobile — see note below. |
 
-When ElevenLabs is configured, the simulator offers a voice-source toggle. The API key and voice ID are server-side only — they are never sent to the browser. On any ElevenLabs error, the implementation falls back to browser TTS silently so the demo continues without interruption.
+When ElevenLabs is configured, the simulator offers a voice-source toggle. The API key and voice ID are server-side only — they are never sent to the browser. On desktop, any ElevenLabs error falls back to browser TTS silently so the demo continues without interruption.
+
+**Mobile TTS:** On mobile browsers (iOS Safari, Android Chrome), `window.speechSynthesis.speak()` is blocked by the browser when called after an async operation, even with a prior user-gesture unlock. For this reason, browser TTS is not attempted on mobile. When ElevenLabs is configured, voice responses work on mobile via `ElevenLabsVoiceProvider`. When ElevenLabs is not configured on mobile, responses are text-only — the text is always visible in the response panel regardless of voice availability.
 
 **iOS/Mobile audio unlock:** `ElevenLabsVoiceProvider` exposes a `primeForPlayback()` method that must be called synchronously inside the user-gesture handler before the async fetch begins. This creates and unlock-taps an `Audio` element while still within the gesture call stack, satisfying iOS Safari's requirement for user-gesture-gated audio even when playback happens after an `await`.
 
